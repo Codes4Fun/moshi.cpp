@@ -228,26 +228,36 @@ ggml_tensor * moshi_kv_cache_get_positions(
         ScratchContext & ctx,
         int end_offset,
         int capacity ) {
-    int last_index = ( end_offset - 1 ) % capacity;
-    int left = last_index + 1;
-    int right = capacity - left;
+    auto indexes = ctx.arange( 0, capacity, 1 );
 
-    int left_start = last_index-left+1;
-    ggml_tensor * positions;
-    if ( left == capacity ) {
-        positions = ctx.arange( left_start, left_start + left, 1 );
-    } else if ( last_index < capacity ) {
-        positions = ggml_concat( ctx,
-            ctx.arange( 0, left, 1 ),
-            ctx.fill( right, -1),
-            0 );
-    } else {
-        int right_start = last_index - capacity + 1;
-        positions = ggml_concat( ctx,
-            ctx.arange( left_start, left_start + left, 1 ),
-            ctx.arange( right_start, right_start + right, 1 ),
-            0 );
-    }
+    auto last_offset = end_offset - 1;
+    int end_index = last_offset % capacity;
+    //delta = indexes - end_index
+    auto const_end_index = ctx.constant( (float)end_index );
+    auto delta = ggml_sub( ctx, indexes, const_end_index );
+
+    // We know that if `index == end_index`, then we should output `end_offset`.
+    // If `index = end_index - 1` we should output `end_offset - 1`
+    // If `index = end_index - n` we should output `end_offset - n`
+    // Now, for `index == end_index + 1` , we actually have the oldest entry in the cache,
+    // so we should output `end_index + 1 - capacity`
+
+    // so the clamp is an inplace op
+    auto capacity_mask = ggml_clamp( ctx, delta, 0, 1 );
+    auto const_last_offset = ctx.constant( (float)last_offset );
+    auto positions = ggml_add( ctx, delta, const_last_offset );
+    positions = ggml_sub( ctx, positions, ggml_scale( ctx, capacity_mask, capacity ) );
+
+    auto one = ctx.constant( 1.f );
+    indexes = ggml_neg( ctx, indexes );
+
+    auto const_end_offset = ctx.constant( (float)end_offset );
+    indexes = ggml_add( ctx, indexes, const_end_offset );
+
+    auto valid = ggml_clamp( ctx, indexes, 0, 1 );
+    positions = ggml_add( ctx, positions, one );
+    positions = ggml_mul( ctx, positions, valid );
+    positions = ggml_sub( ctx, positions, one );
 
     return positions;
 }
