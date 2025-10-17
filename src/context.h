@@ -372,6 +372,21 @@ class ScratchContext {
         copies.push_back({ tensor, dst });
     }
 
+    struct debug_sum_t {
+        const char * label;
+        ggml_tensor * src;
+    };
+    std::vector<debug_sum_t> debug_sums;
+    void debug( const char * label, ggml_tensor * src ) {
+        if (src->type != GGML_TYPE_F32)
+            src = ggml_cast( ctx, src, GGML_TYPE_F32 );
+        auto sum = ggml_sum( ctx, src );
+        if (!gf)
+            gf = ggml_new_graph_custom( ctx, GGML_DEFAULT_GRAPH_SIZE * 2, false );
+        ggml_build_forward_expand( gf, sum );
+        debug_sums.push_back({label, sum});
+    }
+
     void reset() {
         backend_copies.clear();
         copies.clear();
@@ -404,6 +419,13 @@ class ScratchContext {
             // compute
             if (name.size()) {CAPTURE(name, gf);}
             ggml_backend_graph_compute( backend, gf );
+            // debug
+            for (auto sum : debug_sums) {
+                float fsum;
+                ggml_backend_tensor_get( sum.src, &fsum, 0, 4 );
+                printf( "%s %f\n", sum.label, fsum );
+            }
+            debug_sums.clear();
             // copy results
             for (auto copy : tensor_copies) {
                 auto tensor = ggml_dup_tensor( copy.ctx, copy.src );
