@@ -44,25 +44,34 @@ struct moshi_ttsmodel_t {
 
     sentencepiece::SentencePieceProcessor sp;
 
+    bool needs_voice;
     conditioners_t cond;
     voice_t voice;
 };
 
-moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend ) {
+moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend, std::string path = "kyutai/tts-1.6b-en_fr" ) {
+    auto config = get_config( (path + "/config.json").c_str() );
+    assert( config );
+    assert( config->positional_embedding == "rope" );
+    assert( config->norm == "rms_norm_f32" );
+    std::string lm_path = path + "/" + config->moshi_name;
+    std::string mimi_path = path + "/" + config->mimi_name;
+    std::string tokenizer_path = path + "/" + config->tokenizer_name;
+
     auto tts = new moshi_ttsmodel_t;
 
     tts->scratch_cpu = new ScratchContext( 256 );
     tts->scratch = new ScratchContext( 256, backend );
 
-    auto lm_safetensor = SafeTensorFile::from_file("kyutai/tts-1.6b-en_fr/dsm_tts_1e68beda@240.safetensors");
-    tts->lm = moshi_lmmodel_alloc_default();
+    auto lm_safetensor = SafeTensorFile::from_file( lm_path.c_str() );
+    tts->lm = moshi_lmmodel_alloc_default( config );
     tts->weights = new WeightLoader( lm_safetensor, tts->scratch_cpu, backend );
     get_weights( tts->weights, "lm.", tts->lm );
     get_weights( tts->weights, &tts->cond );
     {CAPTURE_GROUP("lm");
     tts->weights->load();}
 
-    auto mimi_safetensor = SafeTensorFile::from_file("kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors");
+    auto mimi_safetensor = SafeTensorFile::from_file( mimi_path.c_str() );
     tts->mimi = moshi_mimi_alloc_default();
     tts->mimi_weights = new WeightLoader( mimi_safetensor, tts->scratch_cpu, backend );
     get_weights( tts->mimi_weights, "mimi.quantizer.", tts->mimi->quantizer );
@@ -72,7 +81,14 @@ moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend ) {
     {CAPTURE_GROUP("mimi");
     tts->mimi_weights->load();}
 
-    tts->sp.Load("kyutai/tts-1.6b-en_fr/tokenizer_spm_8k_en_fr_audio.model");
+    tts->sp.Load( tokenizer_path );
+
+    tts->needs_voice = config->cross_attention;
+
+    tts->voice.ctx = NULL;
+    tts->voice.buffer = NULL;
+    tts->voice.sum = NULL;
+    tts->voice.cross = NULL;
 
     return tts;
 }
@@ -217,7 +233,7 @@ void moshi_ttsmodel_generate_wav(
         std::string filename,
         ggml_backend * backend = NULL,
         int seed = -1) {
-    assert( tts->voice.sum ); // need to load a voice, maybe automate this?
+    assert( !tts->needs_voice || tts->voice.sum ); // need to load a voice, maybe automate this?
 
     auto time_start = ggml_time_ms();
 
@@ -272,7 +288,7 @@ void moshi_ttsmodel_generate_wav(
             lmgen_state,
             tts->lm,
             lm_states,
-            true, 0.6, 0.6, 250,
+            true, 0.6, 0.6, 250, 25,
             depformer_replace_tokens,
             machine, machine_state,
             tts->voice.sum, tts->voice.cross,

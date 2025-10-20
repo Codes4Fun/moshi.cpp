@@ -190,7 +190,7 @@ class ScratchContext {
     ~ScratchContext() { ggml_free(ctx); }
 
     bool can_cast() {
-        return !backend || !ggml_backend_is_vk( backend );
+        return true;
     }
 
     operator ggml_context * () {

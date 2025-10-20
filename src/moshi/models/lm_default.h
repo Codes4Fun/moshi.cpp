@@ -1,38 +1,49 @@
 #pragma once
 
-moshi_lmmodel_t * moshi_lmmodel_alloc_default() {
-    auto lm_transformer = new moshi_streaming_transformer_t{ /*.layers=*/ {
-        new moshi_streaming_transformer_layer_t{
+moshi_lmmodel_t * moshi_lmmodel_alloc_default( config_t * config ) {
+    //int64_t dim_feedforward = config->hidden_scale * config->dim;
+    
+    assert( config->positional_embedding == "rope" );
+    auto lm_transformer = new moshi_streaming_transformer_t;
+    lm_transformer->layers.resize( config->num_layers );
+    for ( int64_t i = 0; i < config->num_layers; i++ ) {
+        moshi_smha_t * cross_attention = NULL;
+        torch_nn_layer_norm_t * norm_cross = NULL;
+        if ( config->cross_attention ) {
+            cross_attention = new moshi_smha_t{
+                /*.embed_dim=*/ (int)config->dim,
+                /*.num_heads=*/ (int)config->num_heads,
+                /*.cross_attention=*/ true,
+                /*.cache_cross_attention=*/ true,
+                /*.causal=*/ false,
+                /*.rope_max_period=*/ 0,
+                /*.context=*/ 0,
+                /*.weights_per_step=*/ 0,
+                /*.weights_per_step_schedule=*/ {},
+                /*.in_projs=*/ {new torch_nn_linear_t},
+                /*.out_projs=*/ {new torch_nn_linear_t}
+            };
+            norm_cross = new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 };
+        }
+        auto layer = new moshi_streaming_transformer_layer_t{
             /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
             /*.norm1=*/ NULL,
             /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
+                /*.embed_dim=*/ (int)config->dim,
+                /*.num_heads=*/ (int)config->num_heads,
                 /*.cross_attention=*/ false,
                 /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
+                /*.causal=*/ config->causal,
+                /*.rope_max_period=*/ (int)config->max_period,
+                /*.context=*/ (int)config->context,
                 /*.weights_per_step=*/ 0,
                 /*.weights_per_step_schedule=*/ {},
                 /*.in_projs=*/ {new torch_nn_linear_t},
                 /*.out_projs=*/ {new torch_nn_linear_t}
             },
             /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ {new torch_nn_linear_t},
-                /*.out_projs=*/ {new torch_nn_linear_t}
-            },
+            /*.norm_cross=*/ norm_cross,
+            /*.cross_attention=*/ cross_attention,
             /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
             /*.norm2=*/ NULL,
             /*.weights_per_step_schedule=*/ {},
@@ -45,1152 +56,114 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default() {
             /*.linear1=*/ NULL,
             /*.linear2=*/ NULL,
             /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 500,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.cross_attention=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 2048,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ true,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ false,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        },
+        };
+        lm_transformer->layers[i] = layer;
     }
+
+    int depformer_num_weights = 1;
+    if ( config->depformer_weights_per_step_schedule.size() ) {
+        auto max = config->depformer_weights_per_step_schedule[0];
+        for ( size_t i = 0; i < config->depformer_weights_per_step_schedule.size(); i++ )
+            if ( max < config->depformer_weights_per_step_schedule[i] )
+                max = config->depformer_weights_per_step_schedule[i];
+        depformer_num_weights = max + 1;
+    }
+
+    auto lm_depformer = new moshi_streaming_transformer_t;
+    lm_depformer->layers.resize( config->depformer_num_layers );
+    for ( int64_t i = 0; i < config->depformer_num_layers; i++ ) {
+        auto layer = new moshi_streaming_transformer_layer_t{
+            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
+            /*.norm1=*/ NULL,
+            /*self_attn=*/ new moshi_smha_t{
+                /*.embed_dim=*/ (int)config->depformer_dim,
+                /*.num_heads=*/ (int)config->depformer_num_heads,
+                /*.cross_attention=*/ false,
+                /*.cache_cross_attention=*/ true,
+                /*.causal=*/ config->causal,
+                /*.rope_max_period=*/ 0,
+                /*.context=*/ 0,
+                /*.weights_per_step=*/ (int)config->depformer_weights_per_step_schedule.size(),
+                /*.weights_per_step_schedule=*/ {},
+                /*.in_projs=*/ {},
+                /*.out_projs=*/ {}
+            },
+            /*.layer_scale_1=*/ NULL,
+            /*.norm_cross=*/ NULL,
+            /*.cross_attention=*/ NULL,
+            /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
+            /*.norm2=*/ NULL,
+            /*.weights_per_step_schedule=*/ {},
+            /*.gating=*/ {},
+            /*.linear1=*/ NULL,
+            /*.linear2=*/ NULL,
+            /*.layer_scale_2=*/ NULL
+        };
+        layer->self_attn->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
+        layer->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
+        for ( size_t j =0; j < config->depformer_weights_per_step_schedule.size(); j++ ) {
+            layer->self_attn->weights_per_step_schedule[j] = config->depformer_weights_per_step_schedule[j];
+            layer->weights_per_step_schedule[j] = config->depformer_weights_per_step_schedule[j];
+        }
+        layer->self_attn->in_projs.resize( depformer_num_weights );
+        layer->self_attn->out_projs.resize( depformer_num_weights );
+        layer->gating.resize( depformer_num_weights );
+        for (int j = 0; j < depformer_num_weights; j++ ) {
+            layer->self_attn->in_projs[j] = new torch_nn_linear_t;
+            layer->self_attn->out_projs[j] = new torch_nn_linear_t;
+            layer->gating[j] = new moshi_activation_gating_t{
+                /*.linear_in=*/new torch_nn_linear_t,
+                /*.linear_out=*/new torch_nn_linear_t
+            };
+        }
+
+        lm_depformer->layers[i] = layer;
+    }
+    auto lmmodel = new moshi_lmmodel_t;
+    lmmodel->n_q = config->n_q;
+    lmmodel->dep_q = config->dep_q;
+    lmmodel->card = config->card;
+    lmmodel->text_card = config->text_card;
+    lmmodel->delays.resize( config->delays.size() );
+    for (size_t i = 0; i < config->delays.size(); i++ )
+        lmmodel->delays[i] = config->delays[i];
+    lmmodel->dim = config->dim;
+    lmmodel->depformer_weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
+    for (size_t i = 0; i < config->depformer_weights_per_step_schedule.size(); i++ )
+        lmmodel->depformer_weights_per_step_schedule[i] = config->depformer_weights_per_step_schedule[i];
+    lmmodel->emb.resize( config->n_q );
+    for (int64_t i = 0; i < config->n_q; i++ )
+        lmmodel->emb[i] = new moshi_scaled_embedding_t{NULL};
+    lmmodel->text_emb = new moshi_scaled_embedding_demux_t{
+        /*.num_embeddings=*/ (int)config->text_card + 1,
+        /*.out1=*/ new torch_nn_linear_t,
+        /*.out2=*/ new torch_nn_linear_t
     };
-
-    auto lm_depformer =
-    new moshi_streaming_transformer_t{ /*.layers=*/ {
-        new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 1024,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 32,
-                /*.weights_per_step_schedule=*/ {0,1,2,3,4,5,6,7,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,},
-                /*.in_projs=*/ {
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                },
-                /*.out_projs=*/ {
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {0,1,2,3,4,5,6,7,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 1024,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 32,
-                /*.weights_per_step_schedule=*/ {0,1,2,3,4,5,6,7,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,},
-                /*.in_projs=*/ {
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                },
-                /*.out_projs=*/ {
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {0,1,2,3,4,5,6,7,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 1024,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 32,
-                /*.weights_per_step_schedule=*/ {0,1,2,3,4,5,6,7,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,},
-                /*.in_projs=*/ {
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                },
-                /*.out_projs=*/ {
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {0,1,2,3,4,5,6,7,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 1024,
-                /*.num_heads=*/ 16,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ 32,
-                /*.weights_per_step_schedule=*/ {0,1,2,3,4,5,6,7,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,},
-                /*.in_projs=*/ {
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                },
-                /*.out_projs=*/ {
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                    new torch_nn_linear_t,
-                }
-            }, /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {0,1,2,3,4,5,6,7,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,},
-            /*.gating=*/ {
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-                new moshi_activation_gating_t{
-                    /*.linear_in=*/new torch_nn_linear_t,
-                    /*.linear_out=*/new torch_nn_linear_t
-                },
-            },
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        },
-    }};
-
-    return new moshi_lmmodel_t{
-        /*.n_q=*/ 32,
-        /*.dep_q=*/ 32,
-        /*.card=*/ 2048,
-        /*.text_card=*/ 8000,
-        /*.delays=*/ {0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},
-        /*.dim=*/ 2048,
-        /*.depformer_weights_per_step_schedule=*/ {0, 1, 2, 3, 4, 5, 6, 7, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10},
-        /*.emb=*/ {
-            /*0*/ new moshi_scaled_embedding_t{NULL},
-            /*1*/ new moshi_scaled_embedding_t{NULL},
-            /*2*/ new moshi_scaled_embedding_t{NULL},
-            /*3*/ new moshi_scaled_embedding_t{NULL},
-            /*4*/ new moshi_scaled_embedding_t{NULL},
-            /*5*/ new moshi_scaled_embedding_t{NULL},
-            /*6*/ new moshi_scaled_embedding_t{NULL},
-            /*7*/ new moshi_scaled_embedding_t{NULL},
-            /*8*/ new moshi_scaled_embedding_t{NULL},
-            /*9*/ new moshi_scaled_embedding_t{NULL},
-            /*10*/ new moshi_scaled_embedding_t{NULL},
-            /*11*/ new moshi_scaled_embedding_t{NULL},
-            /*12*/ new moshi_scaled_embedding_t{NULL},
-            /*13*/ new moshi_scaled_embedding_t{NULL},
-            /*14*/ new moshi_scaled_embedding_t{NULL},
-            /*15*/ new moshi_scaled_embedding_t{NULL},
-            /*16*/ new moshi_scaled_embedding_t{NULL},
-            /*17*/ new moshi_scaled_embedding_t{NULL},
-            /*18*/ new moshi_scaled_embedding_t{NULL},
-            /*19*/ new moshi_scaled_embedding_t{NULL},
-            /*20*/ new moshi_scaled_embedding_t{NULL},
-            /*21*/ new moshi_scaled_embedding_t{NULL},
-            /*22*/ new moshi_scaled_embedding_t{NULL},
-            /*23*/ new moshi_scaled_embedding_t{NULL},
-            /*24*/ new moshi_scaled_embedding_t{NULL},
-            /*25*/ new moshi_scaled_embedding_t{NULL},
-            /*26*/ new moshi_scaled_embedding_t{NULL},
-            /*27*/ new moshi_scaled_embedding_t{NULL},
-            /*28*/ new moshi_scaled_embedding_t{NULL},
-            /*29*/ new moshi_scaled_embedding_t{NULL},
-            /*30*/ new moshi_scaled_embedding_t{NULL},
-            /*31*/ new moshi_scaled_embedding_t{NULL},
-        },
-        /*.text_emb=*/ new moshi_scaled_embedding_demux_t{
-            /*.num_embeddings=*/ 8001,
-            /*.out1=*/ new torch_nn_linear_t,
-            /*.out2=*/ new torch_nn_linear_t
-        },
-
-        /*.text_linear=*/ new torch_nn_linear_t,
-        /*.transformer=*/ lm_transformer,
-        /*.out_norm=*/ new moshi_rms_norm_t{1e-08},
-        /*.depformer_multi_linear=*/ true,
-
-        /*.depformer_in=*/ {
-            /*0*/ new torch_nn_linear_t,
-            /*1*/ new torch_nn_linear_t,
-            /*2*/ new torch_nn_linear_t,
-            /*3*/ new torch_nn_linear_t,
-            /*4*/ new torch_nn_linear_t,
-            /*5*/ new torch_nn_linear_t,
-            /*6*/ new torch_nn_linear_t,
-            /*7*/ new torch_nn_linear_t,
-            /*8*/ new torch_nn_linear_t,
-            /*9*/ new torch_nn_linear_t,
-            /*10*/ new torch_nn_linear_t,
-        },
-        /*.depformer_emb=*/ {
-            /*0*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*1*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*2*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*3*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*4*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*5*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*6*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*7*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*8*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*9*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*10*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*11*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*12*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*13*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*14*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*15*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*16*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*17*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*18*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*19*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*20*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*21*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*22*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*23*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*24*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*25*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*26*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*27*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*28*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*29*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-            /*30*/ new moshi_scaled_embedding_t{new torch_nn_linear_t},
-        },
-        /*.depformer_text_emb=*/ new moshi_scaled_embedding_demux_t{
-            /*.num_embeddings=*/ 8001,
-            /*.out1=*/ new torch_nn_linear_t,
-            /*.out2=*/ new torch_nn_linear_t
-            // NOTE: the original had low_rank for no reason, never gets used in demux
-        },
-        /*.depformer=*/ lm_depformer,
-
-        /*.linears=*/ {
-            /*0*/ new torch_nn_linear_t,
-            /*1*/ new torch_nn_linear_t,
-            /*2*/ new torch_nn_linear_t,
-            /*3*/ new torch_nn_linear_t,
-            /*4*/ new torch_nn_linear_t,
-            /*5*/ new torch_nn_linear_t,
-            /*6*/ new torch_nn_linear_t,
-            /*7*/ new torch_nn_linear_t,
-            /*8*/ new torch_nn_linear_t,
-            /*9*/ new torch_nn_linear_t,
-            /*10*/ new torch_nn_linear_t,
-            /*11*/ new torch_nn_linear_t,
-            /*12*/ new torch_nn_linear_t,
-            /*13*/ new torch_nn_linear_t,
-            /*14*/ new torch_nn_linear_t,
-            /*15*/ new torch_nn_linear_t,
-            /*16*/ new torch_nn_linear_t,
-            /*17*/ new torch_nn_linear_t,
-            /*18*/ new torch_nn_linear_t,
-            /*19*/ new torch_nn_linear_t,
-            /*20*/ new torch_nn_linear_t,
-            /*21*/ new torch_nn_linear_t,
-            /*22*/ new torch_nn_linear_t,
-            /*23*/ new torch_nn_linear_t,
-            /*24*/ new torch_nn_linear_t,
-            /*25*/ new torch_nn_linear_t,
-            /*26*/ new torch_nn_linear_t,
-            /*27*/ new torch_nn_linear_t,
-            /*28*/ new torch_nn_linear_t,
-            /*29*/ new torch_nn_linear_t,
-            /*30*/ new torch_nn_linear_t,
-            /*31*/ new torch_nn_linear_t
-        },
-
-        /*.num_codebooks=*/ 33, // n_q + 1
-        /*.num_audio_codebooks=*/ 32, // n_q
-        /*.audio_offset=*/ 1
+    lmmodel->text_linear = new torch_nn_linear_t;
+    lmmodel->transformer = lm_transformer;
+    lmmodel->out_norm = new moshi_rms_norm_t{1e-08};
+    lmmodel->depformer_multi_linear = config->depformer_multi_linear;
+    lmmodel->depformer_in.resize( depformer_num_weights );
+    for ( int64_t i = 0; i < depformer_num_weights; i++ )
+        lmmodel->depformer_in[i] = new torch_nn_linear_t;
+    lmmodel->depformer_emb.resize( config->n_q - 1 );
+    for ( int64_t i = 0; i < config->n_q - 1; i++ )
+        lmmodel->depformer_emb[i] = new moshi_scaled_embedding_t{new torch_nn_linear_t};
+    lmmodel->depformer_text_emb = new moshi_scaled_embedding_demux_t{
+        /*.num_embeddings=*/ 8001,
+        /*.out1=*/ new torch_nn_linear_t,
+        /*.out2=*/ new torch_nn_linear_t
+        // NOTE: the original had low_rank for no reason, never gets used in demux
     };
+    lmmodel->depformer = lm_depformer;
+    lmmodel->linears.resize( config->dep_q );
+    for ( int64_t i = 0; i < config->dep_q; i++ )
+        lmmodel->linears[i] = new torch_nn_linear_t;
+    lmmodel->num_codebooks = config->n_q + 1;
+    lmmodel->num_audio_codebooks= config->n_q;
+    lmmodel->audio_offset= 1;
+    
+    return lmmodel;
 }
 
 

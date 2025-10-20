@@ -212,7 +212,11 @@ int json_object_parse(const_str_t & json, int offset, T on_item) {
         if (offset >= json.length || json.s[offset] != ':')
             return json_error("expected seperator");
 
-        offset = on_item(json, ++offset, key_start, key_length);
+        offset = str_skip_whitespaces( json, ++offset );
+        if (offset >= json.length)
+            return json_error("unexpected end of object");
+
+        offset = on_item(json, offset, key_start, key_length);
 		if (offset == -1)
 			return -1;
 

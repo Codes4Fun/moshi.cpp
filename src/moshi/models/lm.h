@@ -292,7 +292,7 @@ moshi_lmmodel_states_t * moshi_lmmodel_states( StateContext * state_ctx,
         k_cross );
     state->depformer = moshi_streaming_transformer_state( state_ctx, lm->depformer,
         NULL );
-    state_ctx->fill(GGML_NE(2048), 0.f, &state->transformer_out );
+    state_ctx->fill(GGML_NE(lm->dim), 0.f, &state->transformer_out );
     return state;
 }
 
@@ -462,7 +462,7 @@ bool moshi_lmgen_step(
         moshi_lmgen_state_t * state,
         moshi_lmmodel_t * lm,
         moshi_lmmodel_states_t * lm_states,
-        bool use_sampling, float temp_text, float temp, int top_k,
+        bool use_sampling, float temp, float temp_text, int top_k, int top_k_text,
         bool depformer_replace_tokens,
         StateMachine * machine,
         State * machine_state,
@@ -501,7 +501,7 @@ bool moshi_lmgen_step(
 
     // note this does the compute
     auto text_token = moshi_sample_token_int( scratch, text_logits,
-        use_sampling, temp_text, top_k );
+        use_sampling, temp_text, top_k_text );
 
     text_token = machine->process(state->offset, machine_state, text_token);
 

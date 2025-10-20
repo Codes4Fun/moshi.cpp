@@ -13,11 +13,6 @@
 #include <ggml.h>
 #include <ggml-backend.h>
 #include <ggml-cpu.h>
-#define GGML_USE_VULKAN
-#ifdef GGML_USE_VULKAN
-#include <ggml-vulkan.h>
-#endif
-#include <ggml-cuda.h>
 
 //#include "replay.h"
 //#include "replay_ops.h"
@@ -29,6 +24,7 @@
 
 //#define DISABLE_RAND
 #include "src/safetensor.h"
+#include "src/config.h"
 #include "src/context.h"
 #include "src/loader.h"
 #include "src/torch.h"
@@ -36,6 +32,7 @@
 #include "src/moshi/utils/sampling.h"
 #include "src/moshi/models/lm_utils.h"
 #include "src/moshi/models/lm.h"
+#include "src/moshi/quantization/core_vq.h"
 #include "src/moshi/quantization/vq.h"
 #include "src/moshi/modules/conv.h"
 #include "src/moshi/modules/seanet.h"
@@ -47,8 +44,8 @@
 void top_k_cuda_test() {
 	ggml_backend_t backend = NULL;
 
-    //backend = ggml_backend_vk_init(0); // init device 0
-	backend = ggml_backend_cuda_init(0);
+    //backend = ggml_backend_init_by_name("Vulkan0", NULL);
+    backend = ggml_backend_init_by_name("CUDA0", NULL);
 	assert( backend );
 
     // create context
@@ -58,10 +55,11 @@ void top_k_cuda_test() {
 		/*.no_alloc   =*/ true,
     });
 
-#define TOP_K 8000
+#define TOP_K_PROBS 8000
+#define TOP_K 512
 
-	auto probs = ggml_arange( ctx, 0, TOP_K, 1 );
-	auto result = ggml_top_k( ctx, probs, 512 );
+	auto probs = ggml_arange( ctx, 0, TOP_K_PROBS, 1 );
+	auto result = ggml_top_k( ctx, probs, TOP_K );
 
     auto gf = ggml_new_graph(ctx);
     ggml_build_forward_expand(gf, result);
@@ -72,7 +70,9 @@ void top_k_cuda_test() {
     std::vector<int> out_data(ggml_nelements(result));
     ggml_backend_tensor_get(result, out_data.data(), 0, ggml_nbytes(result));
 
-	printf("out_data %d %d %d %d ...\n", out_data[0], out_data[1], out_data[2], out_data[3] );
+	printf("out_data %d %d %d %d ... %d %d %d %d\n",
+        out_data[0], out_data[1], out_data[2], out_data[3],
+        out_data[TOP_K-4], out_data[TOP_K-3], out_data[TOP_K-2], out_data[TOP_K-1] );
 
 	printf("press enter to continue");
 	getchar();
@@ -85,8 +85,7 @@ void top_k_cuda_test() {
 
 void test_rms_norm() {
 	// init backend
-	//auto backend = ggml_backend_cpu_init();
-	auto backend = ggml_backend_cuda_init(0);
+    auto backend = ggml_backend_init_by_name("CUDA0", NULL);
 	assert( backend );
     auto ctx = ggml_init({
 		/*.mem_size   =*/ ggml_tensor_overhead()*GGML_DEFAULT_GRAPH_SIZE + ggml_graph_overhead(),
@@ -118,7 +117,7 @@ void test_rms_norm() {
 
 void test_rms_norm2() {
 	// init backend
-	auto backend = ggml_backend_cuda_init(0);
+    auto backend = ggml_backend_init_by_name("CUDA0", NULL);
 	assert( backend );
     auto ctx = ggml_init({
 		/*.mem_size   =*/ ggml_tensor_overhead()*GGML_DEFAULT_GRAPH_SIZE + ggml_graph_overhead(),
@@ -140,17 +139,32 @@ void test_rms_norm2() {
 }
 
 void tts_test() {
-	//auto backend = ggml_backend_vk_init(0);
-	auto backend = ggml_backend_cuda_init(0);
-	//auto backend = ggml_backend_cpu_init();
+    //auto backend = ggml_backend_init_by_name("Vulkan0", NULL);
+    //auto backend = ggml_backend_init_by_name("CUDA0", NULL);
+    //auto backend = ggml_backend_init_by_name("CPU", NULL);
+    auto backend = ggml_backend_init_best();
+    assert( backend );
+    auto dev = ggml_backend_get_device( backend );
+    auto dev_name = ggml_backend_dev_name( dev );
+    printf( "using backend: \"%s\"\n", dev_name );
 
-    auto tts = moshi_ttsmodel( backend );
+    auto last = ggml_time_ms();
+    printf( "loading...\n");
+    auto tts = moshi_ttsmodel( backend, "kyutai/tts-1.6b-en_fr" );
+    //auto tts = moshi_ttsmodel( backend, "kyutai/tts-0.75b-en-public" );
     assert( tts );
 
-    load_voice( "kyutai/tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors",
-        tts, backend );
-    //load_voice( "kyutai/tts-voices/expresso/ex04-ex02_awe_001_channel1_982s.wav.1e68beda@240.safetensors",
-    //    tts, backend );
+    if ( tts->needs_voice ) {
+        load_voice( "kyutai/tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors",
+            tts, backend );
+        //load_voice( "kyutai/tts-voices/expresso/ex04-ex02_awe_001_channel1_982s.wav.1e68beda@240.safetensors",
+        //    tts, backend );
+    }
+
+    auto cur = ggml_time_ms();
+    printf( "loading done %ld\n", (cur - last));
+    last = cur;
+    printf( "generating...\n");
 
     std::string text = "Hey, how are you?";
     text += " Let's try to blow out our context!";
@@ -160,11 +174,22 @@ void tts_test() {
     text += " And hopefully this exceeds our context!";
 
     moshi_ttsmodel_generate_wav( tts, text, "audio_test.wav", backend );
+
+    cur = ggml_time_ms();
+    printf( "generating done %ld\n", (cur - last));
 }
 
 int main(int argc, char **argv)
 {
     ggml_time_init();
+
+    auto dev_count = ggml_backend_dev_count();
+    printf("available backends:\n");
+    for (size_t i = 0; i < dev_count; i++) {
+        auto dev = ggml_backend_dev_get( i );
+        auto name = ggml_backend_dev_name( dev );
+        printf( "  \"%s\"\n", name );
+    }
 
 	//top_k_cuda_test();
 	//test_rms_norm();
