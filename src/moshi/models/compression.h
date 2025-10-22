@@ -3,16 +3,26 @@
 struct moshi_mimi_t {
     bool initialized;
     moshi_split_rvq_t * quantizer;
+    // decoder
     moshi_streaming_conv_transpose_1d_t * upsample;
     moshi_streaming_transformer_t * decoder_transformer;
     moshi_seanet_decoder_t * decoder;
+    // encoder
+    moshi_streaming_conv_1d_t * downsample;
+    moshi_streaming_transformer_t * encoder_transformer;
+    moshi_seanet_encoder_t * encoder;
     int sample_rate;
 };
 
 struct moshi_mimi_state_t {
+    // decoder
     ggml_tensor * upsample;
     moshi_streaming_transformer_state_t * decoder_transformer;
     moshi_seanet_decoder_states_t * decoder;
+    // encoder
+    ggml_tensor * downsample;
+    moshi_streaming_transformer_state_t * encoder_transformer;
+    moshi_seanet_encoder_states_t * encoder;
 };
 
 moshi_mimi_state_t * moshi_mimi_states( StateContext * state_ctx,
@@ -22,20 +32,56 @@ moshi_mimi_state_t * moshi_mimi_states( StateContext * state_ctx,
             mimi->upsample, upsample_ne, states->upsample );
     states->decoder_transformer = moshi_streaming_transformer_state( state_ctx,
             mimi->decoder_transformer, NULL );
+    /*if ( mimi->encoder ) { // we currently don't use the encoder for streaming
+        moshi_streaming_conv_1d_state( state_ctx,
+            mimi->downsample, states->downsample );
+        states->encoder_transformer = moshi_streaming_transformer_state( state_ctx,
+                mimi->encoder_transformer, NULL );
+        states->encoder = create_moshi_seanet_encoder_states( state_ctx,
+            mimi->encoder );
+    } else*/ {
+        states->downsample = NULL;
+        states->encoder_transformer = NULL;
+        states->encoder = NULL;
+    }
     states->decoder = create_moshi_seanet_decoder_states( state_ctx,
             mimi->decoder, decoder_ne );
     return states;
 }
 
+moshi_mimi_state_t * moshi_mimi_encoder_states( StateContext * state_ctx,
+        moshi_mimi_t * mimi ) {
+    auto states = new moshi_mimi_state_t;
+    states->upsample = NULL;
+    states->decoder_transformer = NULL;
+    states->decoder = NULL;
+    moshi_streaming_conv_1d_state( state_ctx,
+        mimi->downsample, states->downsample );
+    states->encoder_transformer = moshi_streaming_transformer_state( state_ctx,
+            mimi->encoder_transformer, NULL );
+    states->encoder = create_moshi_seanet_encoder_states( state_ctx,
+        mimi->encoder );
+    return states;
+}
+
+/*
 void get_weights( WeightLoader * loader, moshi_mimi_t * mimi ) {
     get_weights( loader, "mimi.quantizer.", mimi->quantizer );
     get_weights( loader, "mimi.upsample.convtr.", mimi->upsample );
     get_weights( loader, "mimi.decoder_transformer.transformer.", mimi->decoder_transformer );
     get_weights( loader, "mimi.decoder.", mimi->decoder );
+    if ( mimi->encoder ) {
+        //get_weights( loader, "mimi.encoder_transformer.transformer.", mimi->encoder_transformer );
+        get_weights( loader, "mimi.encoder.", mimi->encoder );
+    }
 }
+*/
 
 void init( moshi_mimi_state_t * states ) {
-    init( states->decoder_transformer );
+    if ( states->decoder_transformer )
+        init( states->decoder_transformer );
+    if ( states->encoder_transformer )
+        init( states->encoder_transformer );
 }
 
 ggml_tensor * mimi_decode_latent(
@@ -94,3 +140,44 @@ void mimi_decode(
 }
 
 
+ggml_tensor * moshi_mimi_to_framerate(
+        ScratchContext & ctx,
+        ggml_tensor * prev_y,
+        moshi_streaming_conv_1d_t * downsample,
+        ggml_tensor * x ) {
+    auto y = moshi_streaming_conv_1d( ctx, prev_y, downsample, x );
+    return y;
+}
+
+ggml_tensor * mimi_quantizer_encode(
+        ScratchContext & ctx,
+        moshi_split_rvq_t * quantizer,
+        ggml_tensor * emb ) {
+    auto codes = moshi_split_rvq_encode( ctx, quantizer, emb );
+    return codes;
+}
+
+ggml_tensor * mimi_encode(
+        ScratchContext & ctx,
+        moshi_mimi_t * mimi,
+        moshi_mimi_state_t * states,
+        ggml_tensor * x ) {
+
+    auto emb = moshi_seanet_encoder( ctx, states->encoder, mimi->encoder, x );
+
+    //std::vector<uint8_t> dst( ggml_nbytes( emb ) );
+    //ctx.build_forward_expand( emb, dst.data() );
+    //ctx.compute();
+
+    emb = moshi_projected_transformer( ctx,
+        states->encoder_transformer, mimi->encoder_transformer, emb );
+
+    // TODO: add support for replicate
+    emb = moshi_mimi_to_framerate( ctx,
+        states->downsample,
+        mimi->downsample , emb );
+    
+    auto codes = mimi_quantizer_encode( ctx, mimi->quantizer, emb );
+
+    return codes;
+}

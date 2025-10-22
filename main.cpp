@@ -26,6 +26,7 @@
 #include "src/safetensor.h"
 #include "src/config.h"
 #include "src/context.h"
+#include "src/wav.h"
 #include "src/loader.h"
 #include "src/torch.h"
 #include "src/moshi/modules/transformer.h"
@@ -149,22 +150,27 @@ void tts_test() {
     printf( "using backend: \"%s\"\n", dev_name );
 
     auto last = ggml_time_ms();
-    printf( "loading...\n");
-    auto tts = moshi_ttsmodel( backend, "kyutai/tts-1.6b-en_fr" );
-    //auto tts = moshi_ttsmodel( backend, "kyutai/tts-0.75b-en-public" );
+    printf( "loading...\n" );
+    //auto tts = moshi_ttsmodel( backend, "kyutai/tts-1.6b-en_fr" );
+    auto tts = moshi_ttsmodel( backend, "kyutai/tts-0.75b-en-public" );
     assert( tts );
 
-    if ( tts->needs_voice ) {
+    if ( tts->uses_cross ) {
         load_voice( "kyutai/tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors",
             tts, backend );
         //load_voice( "kyutai/tts-voices/expresso/ex04-ex02_awe_001_channel1_982s.wav.1e68beda@240.safetensors",
         //    tts, backend );
+    } else {
+        get_prefix( "kyutai/tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav",
+            tts, backend );
+        //get_prefix( "kyutai/tts-voices/expresso/ex04-ex02_awe_001_channel1_982s.wav",
+        //    tts, backend );
     }
 
     auto cur = ggml_time_ms();
-    printf( "loading done %ld\n", (cur - last));
+    printf( "loading done %ld\n", (cur - last) );
     last = cur;
-    printf( "generating...\n");
+    printf( "generating...\n" );
 
     std::string text = "Hey, how are you?";
     text += " Let's try to blow out our context!";

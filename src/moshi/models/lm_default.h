@@ -125,8 +125,13 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( config_t * config ) {
     lmmodel->card = config->card;
     lmmodel->text_card = config->text_card;
     lmmodel->delays.resize( config->delays.size() );
-    for (size_t i = 0; i < config->delays.size(); i++ )
+    int max_delay = config->delays[0];
+    for (size_t i = 0; i < config->delays.size(); i++ ) {
+        if ( config->delays[i] > max_delay )
+            max_delay = config->delays[i];
         lmmodel->delays[i] = config->delays[i];
+    }
+    lmmodel->max_delay = max_delay;
     lmmodel->dim = config->dim;
     lmmodel->depformer_weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
     for (size_t i = 0; i < config->depformer_weights_per_step_schedule.size(); i++ )
@@ -167,16 +172,19 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( config_t * config ) {
 }
 
 
-moshi_mimi_t * moshi_mimi_alloc_default() {
+moshi_mimi_t * moshi_mimi_alloc_default( int n_q, bool encoder = true ) {
     //mimi.quantizer.
     auto mimi_quantizer = new moshi_split_rvq_t{
         /*.n_q_semantic=*/ 1,
         /*.rvq_first=*/ new moshi_rvq_t{
+            /*.n_q=*/1, // n_q_semantic
             /*.vq=*/new moshi_residual_vq_t{ /*.layers=*/ {
                 new moshi_vq_t{ new moshi_EuclideanCodebook_t },
             }},
-            /*.output_proj=*/ new torch_nn_conv1d_t
+            /*.output_proj=*/ new torch_nn_conv1d_t,
+            /*.input_proj=*/ new torch_nn_conv1d_t
         }, /*.rvq_rest=*/ new moshi_rvq_t{
+            /*.n_q=*/n_q - 1, // n_q - n_q_semantic
             /*.vq=*/new moshi_residual_vq_t{ /*.layers=*/ {
                 new moshi_vq_t{ new moshi_EuclideanCodebook_t },
                 new moshi_vq_t{ new moshi_EuclideanCodebook_t },
@@ -210,7 +218,8 @@ moshi_mimi_t * moshi_mimi_alloc_default() {
                 new moshi_vq_t{ new moshi_EuclideanCodebook_t },
                 new moshi_vq_t{ new moshi_EuclideanCodebook_t },
             }},
-            /*.output_proj=*/ new torch_nn_conv1d_t
+            /*.output_proj=*/ new torch_nn_conv1d_t,
+            /*.input_proj=*/ new torch_nn_conv1d_t
         }
     };
 
@@ -433,6 +442,7 @@ moshi_mimi_t * moshi_mimi_alloc_default() {
             /*.in_channels=*/ 512,
             /*.out_channels=*/ 1024,
             /*.kernel_size=*/ 7,
+            /*.stride=*/ 1,
         },
         /*.model_2=*/ new moshi_streaming_conv_transpose_1d_t{
             /*.in_channels=*/ 1024,
@@ -440,13 +450,13 @@ moshi_mimi_t * moshi_mimi_alloc_default() {
             /*.kernel_size=*/ 16,
             /*.stride=*/ 8,
             /*.groups=*/ 1,
-
         },
         /*.model_3=*/ new moshi_seanet_resnet_block_t{
             /*.block_1=*/ new moshi_streaming_conv_1d_t{
                 /*.in_channels=*/ 512,
                 /*.out_channels=*/ 256,
                 /*.kernel_size=*/ 3,
+                /*.stride=*/ 1,
             },
             /*.block_3=*/ new moshi_stateless_conv_1d_t{
                 /*.in_channels=*/ 256,
@@ -467,6 +477,7 @@ moshi_mimi_t * moshi_mimi_alloc_default() {
                 /*.in_channels=*/ 256,
                 /*.out_channels=*/ 128,
                 /*.kernel_size=*/ 3,
+                /*.stride=*/ 1,
             },
             /*.block_3=*/ new moshi_stateless_conv_1d_t{
                 /*.in_channels=*/ 128,
@@ -487,6 +498,7 @@ moshi_mimi_t * moshi_mimi_alloc_default() {
                 /*.in_channels=*/ 128,
                 /*.out_channels=*/ 64,
                 /*.kernel_size=*/ 3,
+                /*.stride=*/ 1,
             },
             /*.block_3=*/ new moshi_stateless_conv_1d_t{
                 /*.in_channels=*/ 64,
@@ -507,6 +519,7 @@ moshi_mimi_t * moshi_mimi_alloc_default() {
                 /*.in_channels=*/ 64,
                 /*.out_channels=*/ 32,
                 /*.kernel_size=*/ 3,
+                /*.stride=*/ 1,
             },
             /*.block_3=*/ new moshi_stateless_conv_1d_t{
                 /*.in_channels=*/ 32,
@@ -518,15 +531,156 @@ moshi_mimi_t * moshi_mimi_alloc_default() {
             /*.in_channels=*/ 64,
             /*.out_channels=*/ 1,
             /*.kernel_size=*/ 3,
+            /*.stride=*/ 1,
         }
     };
 
+    auto mimi_encoder__transformer = (moshi_streaming_transformer_t*)NULL;
+    auto mimi_encoder = (moshi_seanet_encoder_t*)NULL;
+    auto mimi_downsample_conv = (moshi_streaming_conv_1d_t*)NULL;
+    if (encoder) {
+        mimi_encoder = new moshi_seanet_encoder_t{
+            /*.model_0=*/ new moshi_streaming_conv_1d_t{
+                /*.in_channels=*/ 1,
+                /*.out_channels=*/ 64,
+                /*.kernel_size=*/ 7,
+                /*.stride=*/ 1,
+            },
+            /*.model_1=*/ new moshi_seanet_resnet_block_t{
+                /*.block_1=*/ new moshi_streaming_conv_1d_t{
+                    /*.in_channels=*/ 64,
+                    /*.out_channels=*/ 32,
+                    /*.kernel_size=*/ 3,
+                    /*.stride=*/ 1,
+                },
+                /*.block_3=*/ new moshi_stateless_conv_1d_t{
+                    /*.in_channels=*/ 32,
+                    /*.out_channels=*/ 64,
+                    /*.kernel_size=*/ 1,
+                }
+            },
+            /*.model_3=*/ new moshi_streaming_conv_1d_t{
+                /*.in_channels=*/ 64,
+                /*.out_channels=*/ 128,
+                /*.kernel_size=*/ 8,
+                /*.stride=*/ 4,
+            },
+            /*.model_4=*/ new moshi_seanet_resnet_block_t{
+                /*.block_1=*/ new moshi_streaming_conv_1d_t{
+                    /*.in_channels=*/ 128,
+                    /*.out_channels=*/ 64,
+                    /*.kernel_size=*/ 3,
+                    /*.stride=*/ 1,
+                },
+                /*.block_3=*/ new moshi_stateless_conv_1d_t{
+                    /*.in_channels=*/ 64,
+                    /*.out_channels=*/ 128,
+                    /*.kernel_size=*/ 1,
+                }
+            },
+            /*.model_6=*/ new moshi_streaming_conv_1d_t{
+                /*.in_channels=*/ 128,
+                /*.out_channels=*/ 256,
+                /*.kernel_size=*/ 10,
+                /*.stride=*/ 5,
+            },
+            /*.model_7=*/ new moshi_seanet_resnet_block_t{
+                /*.block_1=*/ new moshi_streaming_conv_1d_t{
+                    /*.in_channels=*/ 256,
+                    /*.out_channels=*/ 128,
+                    /*.kernel_size=*/ 3,
+                    /*.stride=*/ 1,
+                },
+                /*.block_3=*/ new moshi_stateless_conv_1d_t{
+                    /*.in_channels=*/ 128,
+                    /*.out_channels=*/ 256,
+                    /*.kernel_size=*/ 1,
+                }
+            },
+            /*.model_9=*/ new moshi_streaming_conv_1d_t{
+                /*.in_channels=*/ 256,
+                /*.out_channels=*/ 512,
+                /*.kernel_size=*/ 12,
+                /*.stride=*/ 6,
+            },
+            /*.model_10=*/ new moshi_seanet_resnet_block_t{
+                /*.block_1=*/ new moshi_streaming_conv_1d_t{
+                    /*.in_channels=*/ 512,
+                    /*.out_channels=*/ 256,
+                    /*.kernel_size=*/ 3,
+                    /*.stride=*/ 1,
+                },
+                /*.block_3=*/ new moshi_stateless_conv_1d_t{
+                    /*.in_channels=*/ 256,
+                    /*.out_channels=*/ 512,
+                    /*.kernel_size=*/ 1,
+                }
+            },
+            /*.model_12=*/ new moshi_streaming_conv_1d_t{
+                /*.in_channels=*/ 512,
+                /*.out_channels=*/ 1024,
+                /*.kernel_size=*/ 16,
+                /*.stride=*/ 8,
+            },
+            /*.model_14=*/ new moshi_streaming_conv_1d_t{
+                /*.in_channels=*/ 1024,
+                /*.out_channels=*/ 512,
+                /*.kernel_size=*/ 3,
+                /*.stride=*/ 1,
+            }
+        };
+        
+        mimi_encoder__transformer = new moshi_streaming_transformer_t;
+        mimi_encoder__transformer->layers.resize( 8 );
+        for ( int64_t i = 0; i < 8; i++ ) {
+            auto layer = new moshi_streaming_transformer_layer_t{
+                /*.norm1_rms=*/ NULL,
+                /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
+                /*self_attn=*/ new moshi_smha_t{
+                    /*.embed_dim=*/ 512,
+                    /*.num_heads=*/ 8,
+                    /*.cross_attention=*/ false,
+                    /*.cache_cross_attention=*/ true,
+                    /*.causal=*/ true,
+                    /*.rope_max_period=*/ 10000,
+                    /*.context=*/ 250,
+                    /*.weights_per_step=*/ 0,
+                    /*.weights_per_step_schedule=*/ {},
+                    /*.in_projs=*/ { new torch_nn_linear_t },
+                    /*.out_projs=*/ { new torch_nn_linear_t }
+                },
+                /*.layer_scale_1=*/ new moshi_layer_scale_t,
+                /*.norm_cross=*/ NULL,
+                /*.cross_attention=*/ NULL,
+                /*.norm2_rms=*/ NULL,
+                /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
+                /*.weights_per_step_schedule=*/ {},
+                /*.gating=*/ {},
+                /*.linear1=*/ new torch_nn_linear_t,
+                /*.linear2=*/ new torch_nn_linear_t,
+                /*.layer_scale_2=*/ new moshi_layer_scale_t
+            };
+            mimi_encoder__transformer->layers[i] = layer;
+        }
+        mimi_downsample_conv = new moshi_streaming_conv_1d_t{
+            /*.in_channels=*/ 512,
+            /*.out_channels=*/ 512,
+            /*.kernel_size=*/ 4,
+            /*.stride=*/ 2,
+        };
+    }
+
     auto mimi = new moshi_mimi_t;
+    mimi->sample_rate = 24000;
     mimi->quantizer = mimi_quantizer;
+    // decoder
     mimi->upsample = mimi_upsample_convtr;
     mimi->decoder_transformer = mimi_decoder__transformer;
     mimi->decoder = mimi_decoder;
-    mimi->sample_rate = 24000;
+    // encoder
+    mimi->downsample = mimi_downsample_conv;
+    mimi->encoder_transformer = mimi_encoder__transformer;
+    mimi->encoder = mimi_encoder;
     return mimi;
 }
 

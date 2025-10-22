@@ -239,6 +239,7 @@ struct moshi_lmmodel_t {
     int card;
     int text_card;
     std::vector<int> delays;
+    int max_delay;
     int dim;
     std::vector<int> depformer_weights_per_step_schedule;
     std::vector<moshi_scaled_embedding_t*> emb;
@@ -435,23 +436,24 @@ const int initial_token[] = {
     2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048
 };
 
-const int cache_capacity = 4;
-const int lm_num_codebooks = 33;
 const int lm_ungenerated_token_id = -2;
-const int max_delay = 2;
 
 struct moshi_lmgen_state_t {
     int offset;
-    int cache[cache_capacity][lm_num_codebooks];
+    std::vector<std::vector<int>> cache;
 };
 
 moshi_lmgen_state_t * moshi_lmgen_state( moshi_lmmodel_t * lm ) {
     auto state = new moshi_lmgen_state_t {
         0, // offset
     };
-    for (int c = 0; c < 4; c++) {
-        for (int k = 0; k < lm_num_codebooks; k++) {
-            state->cache[c][k] = lm_ungenerated_token_id;
+    const int cache_capacity = lm->max_delay + 2;
+    state->cache.resize( cache_capacity );
+    for (int c = 0; c < cache_capacity; c++) {
+        auto & cache = state->cache[c];
+        cache.resize( lm->num_codebooks );
+        for (int k = 0; k < lm->num_codebooks; k++) {
+            cache[k] = lm_ungenerated_token_id;
         }
     }
     return state;
@@ -468,6 +470,8 @@ bool moshi_lmgen_step(
         State * machine_state,
         ggml_tensor * condition_sum,
         ggml_tensor * condition_cross,
+        std::deque<int> & text_prefixes,
+        std::deque<std::vector<int>> & audio_prefixes,
         std::vector<int> & int_audio_tokens
     ) {
     //ProfileScope profile(time_lmgen_step_us);
@@ -479,9 +483,9 @@ bool moshi_lmgen_step(
     for -1 and zeroes out the results if present. that means to do that you
     need to modify data. see: scaled_embedding functions
     */
-    int positions = state->offset % cache_capacity;
-    std::vector<int> input(33);
-    for (int i = 0; i < 33; i++) {
+    int positions = state->offset % state->cache.size();
+    std::vector<int> input(lm->num_codebooks);
+    for (int i = 0; i < lm->num_codebooks; i++) {
         if (state->offset <= lm->delays[i])
             input[i] = initial_token[i];
         else
@@ -503,9 +507,15 @@ bool moshi_lmgen_step(
     auto text_token = moshi_sample_token_int( scratch, text_logits,
         use_sampling, temp_text, top_k_text );
 
-    text_token = machine->process(state->offset, machine_state, text_token);
+    // on_text_hook
+    if ( text_prefixes.size() ) {
+        text_token = text_prefixes.front();
+        text_prefixes.pop_front();
+    } else {
+        text_token = machine->process(state->offset, machine_state, text_token);
+    }
 
-    int_audio_tokens.resize( 32 ); // lm.num_audio_codebooks
+    int_audio_tokens.resize( lm->num_audio_codebooks );
     if (!depformer_replace_tokens) {
         //ProfileScope profile(time_depformer_step_us);
         moshi_lmmodel_depformer_step(
@@ -513,25 +523,34 @@ bool moshi_lmgen_step(
             text_token, use_sampling, temp, top_k,
             int_audio_tokens );
     } else {
-        for (int i = 0; i < 32; i++) {
+        for (int i = 0; i < (int)int_audio_tokens.size(); i++) {
             int_audio_tokens[i] = -1;
         }
     }
+    // on_audio_hook
     const int delay_steps = 16; // int(checkpoint_info.tts_config['audio_delay'] * mimi.frame_rate)
-    for (int q = 0; q < 32; q++) {
+    for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
         if (state->offset < lm->delays[q + 1] + delay_steps)
             int_audio_tokens[q] = -1; // token_ids.zero
+    }
+    if ( audio_prefixes.size() ) {
+        auto audio_codes = audio_prefixes.front();
+        for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
+            if (audio_codes[q] != lm_ungenerated_token_id)
+                int_audio_tokens[q] = audio_codes[q];
+        }
+        audio_prefixes.pop_front();
     }
 
     state->offset++;
 
-    int position = state->offset % cache_capacity; // 4
+    int position = state->offset % state->cache.size();
     state->cache[position][0] = text_token;
-    for (int q = 0; q < 32; q++) {
+    for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
         state->cache[position][q + 1] = int_audio_tokens[q];
     }
 
-    if (state->offset <= max_delay || depformer_replace_tokens)
+    if (state->offset <= lm->max_delay || depformer_replace_tokens)
         return false;
 
     for (auto x : int_audio_tokens) {

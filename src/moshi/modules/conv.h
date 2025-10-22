@@ -1,5 +1,31 @@
 #pragma once
 
+int get_extra_padding_for_conv1d( int length,
+        int kernel_size, int stride, int padding_total ) {
+    /* See `pad_for_conv1d`. */
+    float n_frames = (length - kernel_size + padding_total) / (float)stride + 1;
+    int ideal_length = ((int)ceilf(n_frames) - 1) * stride + (kernel_size - padding_total);
+    return ideal_length - length;
+}
+
+ggml_tensor * pad_for_conv1d( ggml_context * ctx, ggml_tensor * x,
+        int kernel_size, int stride, int padding_total = 0 ) {
+    /* Pad for a convolution to make sure that the last window is full.
+    Extra padding is added at the end. This is required to ensure that we can rebuild
+    an output of the same length, as otherwise, even with padding, some time steps
+    might get removed.
+    For instance, with total padding = 4, kernel size = 4, stride = 2:
+        0 0 1 2 3 4 5 0 0   # (0s are padding)
+        1   2   3           # (output frames of a convolution, last 0 is never used)
+        0 0 1 2 3 4 5 0     # (output of tr. conv., but pos. 5 is going to get removed as padding)
+            1 2 3 4         # once you removed padding, we are missing one time step !
+     */
+    int extra_padding = get_extra_padding_for_conv1d( x->ne[0], kernel_size,
+        stride, padding_total );
+    return ggml_pad( ctx, x, extra_padding, 0, 0, 0 );
+}
+
+
 /*****************************************************************************\
  *   moshi.modules.conv.StreamingConv1d
  * located in models:
@@ -11,7 +37,7 @@ struct moshi_streaming_conv_1d_t {
     int in_channels;      // conv.conv.in_channels
     int out_channels;     // conv.conv.out_channels
     int kernel_size;      // conv.conv.kernel_size[0]
-    // conv.conv.stride[0] == 1    anything else untested
+    int stride;           // conv.conv.stride[0]
     // conv.conv.groups == 1       anything else untested
     // conv.conv.padding[0] == 0   anything else untested
     // conv.conv.dilation[0] == 1  anything else untested
@@ -20,27 +46,39 @@ struct moshi_streaming_conv_1d_t {
 };
 
 ggml_tensor * moshi_streaming_conv_1d (
-        ggml_context * ctx,
+        ScratchContext & ctx,
         ggml_tensor * prev,
         moshi_streaming_conv_1d_t * conv,
         ggml_tensor * x ) {
     const int kernel_size = conv->kernel_size;
     const int dilation = 1;
-    const int stride = 1;
-    int TP = (kernel_size - 1) * dilation + 1 - stride;
+    const int stride = conv->stride;
+    const int effective_kernel_size = (kernel_size - 1) * dilation + 1;
+    int TP = effective_kernel_size - stride;
 
-    auto prev_tp = ggml_view_3d( ctx, prev,
-        TP, prev->ne[1], prev->ne[2],
-        prev->nb[1], prev->nb[2],
-        prev->nb[0] * (prev->ne[0] - TP) );
+    ggml_tensor * prev_tp;
+    if ( prev ) {
+        prev_tp = prev;
+    } else {
+        // TODO: support replicate?
+        prev_tp = ctx.fill( GGML_NE(TP, conv->in_channels), 0.f );
+    }
     x = ggml_concat( ctx, prev_tp, x, 0 );
-    x = ggml_cpy( ctx, x, prev );
+    if ( prev ) {
 
-    // assert conv.conv.conv.stride[0] == 1
+        auto x_tail = ggml_view_3d( ctx, x,
+            TP, x->ne[1], x->ne[2],
+            x->nb[1], x->nb[2],
+            x->nb[0] * (x->ne[0] - TP) );
+
+        auto cpy = ggml_cpy( ctx, x_tail, prev );
+        ctx.build_forward_expand( cpy );
+    }
+
     // assert conv.conv.conv.padding[0] == 0
     // assert conv.conv.conv.dilation[0] == 1
     // assert conv.conv.conv.groups == 1
-    auto y = ggml_conv_1d( ctx, conv->weight, x, 1, 0, 1 );
+    auto y = ggml_conv_1d( ctx, conv->weight, x, stride, 0, 1 );
     if ( conv->bias ) {
         y = ggml_add( ctx, y, conv->bias );
     }
@@ -58,23 +96,22 @@ void get_weights( WeightLoader * loader, std::string path,
 void moshi_streaming_conv_1d_state(
         StateContext * state_ctx,
         moshi_streaming_conv_1d_t * conv,
-        const NE x_ne,
         ggml_tensor * &prev ) {
     const int kernel_size = conv->kernel_size;
-    const int stride = 1;
+    const int stride = conv->stride;
     //const int padding = 0;
     const int dilation = 1;
     //int lout = (lin + 2*padding - dilation*(kernel_size - 1) - 1) / stride + 1;
     //int lout = (kernel_size - 1) * dilation + 1 - stride;
     int TP = (kernel_size - 1) * dilation + 1 - stride;
-    NE ne = { x_ne[0] + TP, conv->in_channels, x_ne[2], 1 };
+    NE ne = { TP, conv->in_channels, 1, 1 };
     state_ctx->fill(ne, 0.f, &prev);
 }
 
 bool calc_out_dim( const moshi_streaming_conv_1d_t * conv,
         const NE x_ne, NE &y_ne ) {
     const int kernel_size = conv->kernel_size;
-    const int stride = 1;
+    const int stride = conv->stride;
     const int padding = 0;
     const int dilation = 1;
 

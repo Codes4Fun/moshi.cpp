@@ -24,6 +24,37 @@ ggml_tensor * moshi_EuclideanCodebook_decode(
     return ggml_get_rows( ctx, codebook->embedding, codes );
 }
 
+ggml_tensor * moshi_EuclideanCodebook_encode(
+        ScratchContext & ctx,
+        moshi_EuclideanCodebook_t * codebook,
+        ggml_tensor * x ) {
+    /*
+    Given a tensor `x` of shape `[*, D]`, returns a tensor of integer codes of shape `[*]`.
+    The codes are defined as the indexes of the centroids nearest to each vector in `x`.
+    */
+
+    auto a = ggml_cont( ctx, x );
+    auto b = codebook->embedding;
+    auto ane1 = a->ne[1];
+    auto bne1 = b->ne[1];
+    a = ggml_reshape_3d( ctx, a, a->ne[0], 1, a->ne[1] );
+    a = ggml_repeat_4d( ctx, a, a->ne[0], bne1, a->ne[2], 1 );
+    a = ggml_reshape_3d( ctx, a, a->ne[0], a->ne[1] * a->ne[2], a->ne[3] );
+
+    b = ggml_repeat_4d( ctx, b, b->ne[0], b->ne[1] * ane1, b->ne[2], b->ne[3] );
+
+    auto c = ggml_sub( ctx, b, a );
+    c = ggml_mul( ctx, c, c );
+    c = ggml_sum_rows( ctx, c );
+    c = ggml_reshape_3d( ctx, c, bne1, ane1, 1 );
+
+    c = ggml_add( ctx, c, ctx.constant(1.f));
+    c = ggml_div( ctx, ctx.fill(c->ne, 1.f), c );
+    c = ggml_argmax( ctx, c );
+
+    return c;
+}
+
 void get_weights( WeightLoader * loader, std::string path,
         moshi_EuclideanCodebook_t * codebook ) {
     WeightLoader::bindings_t bindings;
@@ -79,6 +110,18 @@ ggml_tensor * moshi_vq_decode(
     return quantized;
 }
 
+ggml_tensor * moshi_vq_encode(
+        ScratchContext & ctx,
+        moshi_vq_t * vq,
+        ggml_tensor * x ) {
+    /* Encodes `x` into discrete integer codes. */
+    //x = self._rearrange_input(x)
+    x = ggml_permute( ctx, x, 1, 0, 2, 3 );
+    // x = self.project_in(x) was identity
+    auto codes = moshi_EuclideanCodebook_encode( ctx, vq->_codebook, x);
+    return codes;
+}
+
 void get_weights( WeightLoader * loader, std::string path, moshi_vq_t * vq ) {
     get_weights( loader, path + "_codebook.", vq->_codebook );
 }
@@ -125,6 +168,31 @@ ggml_tensor * moshi_residual_vq_decode(
     }
 
     return quantized;
+}
+
+ggml_tensor * moshi_residual_vq_encode(
+        ScratchContext & ctx,
+        moshi_residual_vq_t * rvq,
+        ggml_tensor * x,
+        int n_q ) {
+    auto residual = x;
+    ggml_tensor * out_indices = NULL;
+    if ( ! n_q )
+        n_q = rvq->layers.size();
+    for ( int i = 0; i < n_q; i++ ) {
+        auto layer = rvq->layers[i];
+        auto indices = moshi_vq_encode( ctx, layer, residual );
+        auto quantized = moshi_vq_decode( ctx, layer, indices );
+        indices = ggml_cast( ctx, indices, GGML_TYPE_F32 );
+        residual = ggml_sub( ctx, residual, quantized );
+        // we don't have torch.stack, but concat on 3rd dimension is the same
+        // dimensions being [T, B, K] with B batch as 1, K is our codes
+        if ( ! out_indices )
+            out_indices = indices;
+        else
+            out_indices = ggml_concat( ctx, out_indices, indices, 2 );
+    }
+    return out_indices;
 }
 
 void get_weights( WeightLoader * loader, std::string path, moshi_residual_vq_t * rvq ) {

@@ -14,6 +14,10 @@ public:
     operator int64_t* () {
         return ne;
     }
+    
+    int64_t nelements() {
+        return ne[0] * ne[1] * ne[2] * ne[3];
+    }
 };
 
 ggml_type safetensor_get_type(std::string dtype) {
@@ -240,6 +244,44 @@ class ScratchContext {
         assert(false); // TODO
     }
 
+    ggml_tensor * fill( NE ne, float value ) {
+        auto tensor = ggml_new_tensor( ctx, GGML_TYPE_F32, 4, ne );
+        auto nelements = ggml_nelements( tensor );
+        float * data;
+        if (backend) {
+            constants.push_back({tensor});
+            auto & constant = constants.back();
+            constant.data.resize( ggml_nbytes( tensor ) );
+            data = (float*)constant.data.data();
+        } else {
+            assert( tensor->data );
+            data = (float*)tensor->data;
+        }
+        for (int64_t i = 0; i < nelements; i++) {
+            data[i] = value;
+        }
+        return tensor;
+    }
+
+    ggml_tensor * fill( NE ne, int32_t value ) {
+        auto tensor = ggml_new_tensor( ctx, GGML_TYPE_I32, 4, ne );
+        auto nelements = ggml_nelements( tensor );
+        int32_t * data;
+        if (backend) {
+            constants.push_back({tensor});
+            auto & constant = constants.back();
+            constant.data.resize( ggml_nbytes( tensor ) );
+            data = (int32_t*)constant.data.data();
+        } else {
+            assert( tensor->data );
+            data = (int32_t*)tensor->data;
+        }
+        for (int64_t i = 0; i < nelements; i++) {
+            data[i] = value;
+        }
+        return tensor;
+    }
+
     // allow another to write to the backend of ours
     // primarily for copying from scratch cpu to scratch gpu
     ggml_tensor * dup_constant( ggml_tensor * src_tensor, void * &data ) {
@@ -304,6 +346,23 @@ class ScratchContext {
             data = (int*)tensor->data;
         }
         memcpy( data, i32.data(), ggml_nbytes( tensor ) );
+        return tensor;
+    }
+
+    ggml_tensor * input( NE ne, std::vector<float> & f32 ) {
+        auto tensor = ggml_new_tensor( ctx, GGML_TYPE_F32, 4, ne );
+        size_t nelements = ggml_nelements( tensor );
+        assert( nelements == f32.size() );
+        float * data;
+        if (backend) {
+            constants.push_back({tensor});
+            auto & constant = constants.back();
+            constant.data.resize( ggml_nbytes( tensor ) );
+            data = (float*)constant.data.data();
+        } else {
+            data = (float*)tensor->data;
+        }
+        memcpy( data, f32.data(), ggml_nbytes( tensor ) );
         return tensor;
     }
 
@@ -404,6 +463,7 @@ class ScratchContext {
         if (backend) {
             // initialize tensors
             auto buffer = ggml_backend_alloc_ctx_tensors( ctx, backend );
+            assert( buffer );
             for (auto load : loaders) {
                 load.src->init( load.safetensor, load.tensor, backend );
             }
@@ -499,6 +559,31 @@ class StateContext {
             ggml_free( ctx );
     }
 
+    void new_tensor( NE ne, ggml_type type, ggml_tensor ** ptensor ) {
+        // will be initialized later
+        states.push_back({ ptensor, type });
+        auto & state = states.back();
+        for ( int i = 0; i < GGML_MAX_DIMS; i++ ) {
+            state.ne[i] = ne[i];
+        }
+    }
+    
+    void new_tensor( NE ne, std::vector<float> & src, ggml_tensor ** ptensor ) {
+        states.push_back({ ptensor, GGML_TYPE_F32 });
+        auto & state = states.back();
+        int64_t nelements = 1;
+        for ( int i = 0; i < GGML_MAX_DIMS; i++ ) {
+            state.ne[i] = ne[i];
+            nelements *= ne[i];
+        }
+        assert( nelements == (int64_t)src.size() );
+        state.data.resize( nelements * 4 );
+        float * dst = (float*)state.data.data();
+        for ( int i = 0; i < nelements; i++)
+            dst[i] = src[i];
+        *ptensor = NULL;
+    }
+
     void fill32( NE ne, ggml_type type, int32_t value, ggml_tensor ** ptensor ) {
         assert( type == GGML_TYPE_F32 || type == GGML_TYPE_I32 );
         states.push_back({ ptensor, type });
@@ -541,12 +626,18 @@ class StateContext {
 
     void init() {
         if (backend) {
-            for ( auto state : states )
+            for ( auto state : states ) {
+                if ( ! state.data.size() )
+                    continue;
                 ggml_backend_tensor_set( *state.ptensor, state.data.data(), 0,
                     state.data.size() );
+            }
         } else {
-            for ( auto state : states )
+            for ( auto state : states ) {
+                if ( ! state.data.size() )
+                    continue;
                 memcpy( (*state.ptensor)->data, state.data.data(), state.data.size() );
+            }
         }
     }
 };

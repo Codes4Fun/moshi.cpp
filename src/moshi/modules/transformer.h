@@ -836,9 +836,9 @@ ggml_tensor * moshi_streaming_transformer(
 
     // self_attn kv_cache capacity, to build k_pos once
     auto attn = m->layers[0]->self_attn;
-    auto state = states->layers[0]->self_attn;
+    int offset = states->layers[0]->self_attn->offset;
     int64_t T = x->ne[1];
-    auto attn_bias = calculate_attn_bias( ctx, attn, T, state->offset );
+    auto attn_bias = calculate_attn_bias( ctx, attn, T, offset );
 
     for ( size_t idx = 0; idx < m->layers.size(); idx++ ) {
         CAPTURE_GROUP( "layer." + std::to_string(idx) );

@@ -30,6 +30,8 @@ struct voice_t {
     ggml_backend_buffer * buffer;
     ggml_tensor * sum;
     ggml_tensor * cross;
+    std::deque<int> text_prefixes;
+    std::deque<std::vector<int>> audio_prefixes;
 };
 
 struct moshi_ttsmodel_t {
@@ -44,7 +46,7 @@ struct moshi_ttsmodel_t {
 
     sentencepiece::SentencePieceProcessor sp;
 
-    bool needs_voice;
+    bool uses_cross;
     conditioners_t cond;
     voice_t voice;
 };
@@ -72,18 +74,23 @@ moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend, std::string path = "k
     tts->weights->load();}
 
     auto mimi_safetensor = SafeTensorFile::from_file( mimi_path.c_str() );
-    tts->mimi = moshi_mimi_alloc_default();
+    tts->mimi = moshi_mimi_alloc_default( config->n_q );
     tts->mimi_weights = new WeightLoader( mimi_safetensor, tts->scratch_cpu, backend );
     get_weights( tts->mimi_weights, "mimi.quantizer.", tts->mimi->quantizer );
     get_weights( tts->mimi_weights, "mimi.upsample.convtr.", tts->mimi->upsample );
     get_weights( tts->mimi_weights, "mimi.decoder_transformer.transformer.", tts->mimi->decoder_transformer );
     get_weights( tts->mimi_weights, "mimi.decoder.", tts->mimi->decoder );
+    if ( tts->mimi->encoder ) {
+        get_weights( tts->mimi_weights, "mimi.downsample.conv.", tts->mimi->downsample );
+        get_weights( tts->mimi_weights, "mimi.encoder_transformer.transformer.", tts->mimi->encoder_transformer );
+        get_weights( tts->mimi_weights, "mimi.encoder.", tts->mimi->encoder );
+    }
     {CAPTURE_GROUP("mimi");
     tts->mimi_weights->load();}
 
     tts->sp.Load( tokenizer_path );
 
-    tts->needs_voice = config->cross_attention;
+    tts->uses_cross = config->cross_attention;
 
     tts->voice.ctx = NULL;
     tts->voice.buffer = NULL;
@@ -178,54 +185,91 @@ bool load_voice(
     return true;
 }
 
-void save_wav(
-    const std::string filename,
-    const std::vector<short> &data,
-    int sample_rate
+void get_prefix( 
+        std::string audiopath,
+        moshi_ttsmodel_t * tts,
+        ggml_backend * backend
 ) {
-    int dataSize = data.size() * 2;
+    std::vector<short> data;
+    auto sample_rate = load_wav( audiopath, data );
+    printf( "sample_rate %d\n", sample_rate );
+    std::vector<float> samples;
+    if ( sample_rate == 24000 ) {
+        assert( data.size() == 240000 ); // only support 10 second clips currently
+        samples.resize( data.size() );
+        for ( size_t s = 0; s < samples.size(); s++ )
+            samples[s] = data[s] / 32768.f;
+    } else if (sample_rate == 48000 ) {
+        assert( data.size() == 480000 ); // only support 10 second clips currently
+        samples.resize( data.size() / 2 );
+        for ( size_t s = 0; s < samples.size(); s++ ) {
+            int a = data[s*2];
+            int b = data[s*2+1];
+            samples[s] = (a + b) * 0.5f / 32768.f;
+        }
+    } else {
+        assert( false ); // other sample rates not yet supported
+    }
 
-    struct WaveHeader {
-        uint32_t riff;
-        uint32_t size; // Size of the rest of the file in bytes.
-        uint32_t wave;
-        uint32_t fmt_tag;
-        uint32_t fmt_size;
-        uint16_t audio_format;
-        uint16_t num_channels;
-        uint32_t sample_rate;
-        uint32_t byte_rate;
-        uint16_t block_align;
-        uint16_t bits_per_sample;
-        uint32_t data_tag;
-        uint32_t data_size;
-    };
-    WaveHeader header;
-    header.riff = 0x46464952; // "RIFF"
-    header.size = dataSize + sizeof(WaveHeader) - 8;
-    header.wave = 0x45564157; // "WAVE"
-    header.fmt_tag = 0x20746d66; // "fmt "
-    header.fmt_size = 16;
-    header.audio_format = 1; // PCM
-    header.num_channels = 1;
-    header.sample_rate = sample_rate;
-    header.byte_rate = sample_rate * 16 / 8; // bytes per second
-    header.block_align = 16 / 8; // bytes per sample
-    header.bits_per_sample = 16;
-    header.data_tag = 0x61746164; // "data"
-    header.data_size = dataSize;
-    FILE *f = fopen(filename.c_str(), "wb");
-    if (f == nullptr)
-        throw std::runtime_error("failed to open file for writing");
-    fwrite(&header, sizeof(WaveHeader), 1, f);
-    size_t offset = ftell(f);
-    printf("header: %ld / %ld\n", offset, sizeof(WaveHeader));
-    fwrite(data.data(), dataSize, 1, f);
-    offset = ftell(f);
-    //printf("data: %ld / %ld\n", offset, sizeof(WaveHeader) + dataSize);
-    printf("length: %f seconds\n", data.size() / (float)sample_rate);
-    fclose(f);
+    const int frame_size = 1920;
+    const int nframes = (int)samples.size() / frame_size;
+
+    StateContext state_ctx( backend );
+    auto states = moshi_mimi_encoder_states( &state_ctx, tts->mimi );
+    // we don't need to pad because 24khz at 10 seconds fits perfectly
+    //auto x = ctx.input( GGML_NE(samples.size()), samples );
+    ggml_tensor * x = NULL;
+    state_ctx.new_tensor( GGML_NE(samples.size()), GGML_TYPE_F32, &x );
+    //auto x = ggml_new_tensor_1d( state_ctx.ctx, GGML_TYPE_F32, samples.size() );
+    //int frame_size = 1920; // TODO: setup mimi.sample_rate / mimi.frame_rate
+    //x = pad_for_conv1d( x, frame_size, frame_size );
+    state_ctx.alloc();
+    state_ctx.init();
+    init( states );
+    assert( x );
+    ggml_backend_tensor_set( x, samples.data(), 0, ggml_nbytes( x ) );
+    
+    auto voice = &tts->voice;
+    ScratchContext &ctx = *tts->scratch;
+    const int n_q = tts->lm->n_q;
+    const int max_delay = tts->lm->max_delay;
+
+    for ( int i = 0; i < nframes; i++ )
+        voice->text_prefixes.push_back( -1 ); // zero_id
+
+    for ( int i = 0; i < max_delay; i++ )
+        voice->text_prefixes.push_back( -2 ); // ungenerated
+
+    // HACK: adding max_delay
+    for ( int i = 0; i < max_delay; i++ ) {
+        voice->audio_prefixes.push_back({});
+        auto & codes = voice->audio_prefixes.back();
+        codes.resize( n_q );
+        for ( int j = 0; j < n_q; j++ ) {
+            codes[j] = lm_ungenerated_token_id;
+        }
+    }
+
+    // encode one frame at a time for now
+    const auto x_nb = 1920 * x->nb[0];
+    for ( int i = 0; i < nframes; i++ ) {
+        auto x_view = ggml_view_1d( ctx, x, 1920, i * x_nb );
+        auto codes = mimi_encode( ctx, tts->mimi, states, x_view );
+        auto cast = ggml_cast( ctx, codes, GGML_TYPE_I32 );
+        voice->audio_prefixes.push_back({});
+        std::vector<int> & audio_codes = voice->audio_prefixes.back();
+        audio_codes.resize( ggml_nelements( cast ) );
+        ctx.build_forward_expand( cast, audio_codes.data() );
+        ctx.compute();
+        // HACK: moving known delayed code from config
+        auto nprefixes = voice->audio_prefixes.size();
+        voice->audio_prefixes[nprefixes-3][0] = audio_codes[0];
+        audio_codes[0] = lm_ungenerated_token_id;
+    }
 }
+
+
+
 
 void moshi_ttsmodel_generate_wav(
         moshi_ttsmodel_t * tts,
@@ -233,7 +277,7 @@ void moshi_ttsmodel_generate_wav(
         std::string filename,
         ggml_backend * backend = NULL,
         int seed = -1) {
-    assert( !tts->needs_voice || tts->voice.sum ); // need to load a voice, maybe automate this?
+    assert( !tts->uses_cross || tts->voice.cross ); // need to load a voice, maybe automate this?
 
     auto time_start = ggml_time_ms();
 
@@ -292,6 +336,7 @@ void moshi_ttsmodel_generate_wav(
             depformer_replace_tokens,
             machine, machine_state,
             tts->voice.sum, tts->voice.cross,
+            tts->voice.text_prefixes, tts->voice.audio_prefixes,
             int_audio_tokens
         );
         if (audio_tokens) {
@@ -313,9 +358,9 @@ void moshi_ttsmodel_generate_wav(
     for (auto pcm : pcms2) {
         for (auto value : pcm) {
             float v = value;
-            if (v > 1.f) v = 1.f;
-            else if (v < -1.f) v = -1.f;
-            v *= 32767;
+            v *= 32768;
+            if (v > 32767.f) v = 32767.f;
+            else if (v < -32768.f) v = -32768.f;
             pcm2.push_back((short)v);
         }
     }
