@@ -4,68 +4,49 @@
 A partial port of Kyutai's Moshi to C++ and ggml.
 * https://github.com/kyutai-labs/moshi
 
-As of right now, it's development is primarily for educational purposes. I'm using this to learn about AI, torch, ggml, and other libraries and tools.
+As of right now, it's development is primarily for learning and development. It's being done to learn about AI, torch, ggml, and other libraries and tools.
 
 ## Status
 
-Currently does a test of text to speech (tts), does not have a cli but in code these can be changed:
+Currently does a test of tts (text to speech) (see: `main.cpp`), does not have a cli but in code these can be changed:
 * The phrase can be changed.
 * Voice can be changed.
 * The seed for randomization can be changed.
 * The model can be set to a 1.6b model with different voices, or 0.75b model.
 
-On an RTX 4090 using the ggml-cuda backend, the 1.6b model performs at a rate of 3 seconds of output audio for about 1 second of generation time. So 15 seconds of audio takes 5 seconds to generate. The 0.75b model performs at a rate of 4 seconds of output audio for 1 second of generation time.
+On an RTX 4090 using the ggml-cuda backend, the 1.6b model performs at a rate of 3 seconds of output audio for about 1 second of generation time. So 15 seconds of audio takes 5 seconds to generate.
 
-Still needs lots of optimization and refactoring.
+The 0.75b model, does not yet have an option to trim the prefix so it will not start with the prompt, but also I think there is an error in the transition between the prefix audio and the prompt generated audio. The prefix only supports 24khz or 48khz sample rate wav files at 10 seconds.
 
-I left out a lot of unused code, to save time, but also because there was no easy way for me to test everything.
+Still needs lots of optimization and refactoring. Right now, for example, it rebuilds the graph for each frame.
+
+I left out a lot of unused code, to save time, but also because there was no easy way for me to test everything, as I add more tests, I will port more code and features.
 
 ## Data / Weights
 
-It uses model data directly from kyutai's hugging face repository, with the 4 main model files here:
+There are two tts models to choose from, one is 1.6b and the other is 0.75b.
+
+The 1.6b model uses cross attention and requires specially made weights for voices, while the 0.75b model uses wav files to start inference, just as you would a system prompt. This means you can only choose specially made voices for the 1.6b model, while you can in theory use any wav file sample of a voice you want to match.
+
+I recommend downloading the contents of these 3 hugging face repositories:
 * https://huggingface.co/kyutai/tts-1.6b-en_fr/tree/main
-
-This is a configuration file for the 1.6b model:
-* https://huggingface.co/kyutai/tts-1.6b-en_fr/resolve/main/config.json?download=true
-
-This is the tokenizer model file for sentencepiece:
-* https://huggingface.co/kyutai/tts-1.6b-en_fr/resolve/main/tokenizer_spm_8k_en_fr_audio.model?download=true
-
-This is the lm model file:
-* https://huggingface.co/kyutai/tts-1.6b-en_fr/resolve/main/dsm_tts_1e68beda%40240.safetensors?download=true
-
-This is the mimi decoder model file:
-* https://huggingface.co/kyutai/tts-1.6b-en_fr/resolve/main/tokenizer-e351c8d8-checkpoint125.safetensors?download=true
-
-All the voices are here:
+* https://huggingface.co/kyutai/tts-0.75b-en-public/tree/main
 * https://huggingface.co/kyutai/tts-voices/tree/main
 
-The default voice used in this project:
-* https://huggingface.co/kyutai/tts-voices/resolve/main/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda%40240.safetensors?download=true
-
-with these files downloaded you should have a subdirectory that roughly looks like this:
+The files should look like this, with tts-voices having a lot of voice samples and weights.
 ```
 kyutai/tts-1.6b-en_fr/config.json
 kyutai/tts-1.6b-en_fr/dsm_tts_1e68beda@240.safetensors
 kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors
 kyutai/tts-1.6b-en_fr/tokenizer_spm_8k_en_fr_audio.model
-kyutai/tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors
-```
-with any additional voices and other files you may have downloaded.
-
-Optionally there is a 0.75b model, that currently doesn't support voices or that I don't know yet how to use them. You only need 2 additional files, with the other two you can copy from the 1.6b directory.
-* https://huggingface.co/kyutai/tts-0.75b-en-public/resolve/main/config.json?download=true
-* https://huggingface.co/kyutai/tts-0.75b-en-public/resolve/main/dsm_tts_d6ef30c7%401000.safetensors?download=true
-
-It's directory should look like this:
-```
 kyutai/tts-0.75b-en-public/config.json
 kyutai/tts-0.75b-en-public/dsm_tts_d6ef30c7%401000.safetensors
 kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors
 kyutai/tts-0.75b-en-public/tokenizer_spm_8k_en_fr_audio.model
+kyutai/tts-voices/*
 ```
 
-Presently to use that model, you will need to modify `main.cpp` by commenting out the 1.6b code line and uncommenting the 0.75b code line.
+Currently to switch models and voices, you will need to modify `main.cpp` by commenting out the 1.6b code line and uncommenting the 0.75b code line.
 
 ## Building and Running
 
