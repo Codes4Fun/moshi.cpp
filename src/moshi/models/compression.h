@@ -11,6 +11,7 @@ struct moshi_mimi_t {
     moshi_streaming_conv_1d_t * downsample;
     moshi_streaming_transformer_t * encoder_transformer;
     moshi_seanet_encoder_t * encoder;
+    float frame_rate;
     int sample_rate;
 };
 

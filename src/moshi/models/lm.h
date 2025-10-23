@@ -260,6 +260,7 @@ struct moshi_lmmodel_t {
     int num_codebooks; // n_q + 1
     int num_audio_codebooks; // n_q
     int audio_offset; // 1
+    int delay_steps;
 };
 
 void get_weights( WeightLoader * loader, std::string path, moshi_lmmodel_t * lm ) {
@@ -440,12 +441,14 @@ const int lm_ungenerated_token_id = -2;
 
 struct moshi_lmgen_state_t {
     int offset;
+    int skip;
     std::vector<std::vector<int>> cache;
 };
 
 moshi_lmgen_state_t * moshi_lmgen_state( moshi_lmmodel_t * lm ) {
     auto state = new moshi_lmgen_state_t {
         0, // offset
+        0, // skip
     };
     const int cache_capacity = lm->max_delay + 2;
     state->cache.resize( cache_capacity );
@@ -472,7 +475,8 @@ bool moshi_lmgen_step(
         ggml_tensor * condition_cross,
         std::deque<int> & text_prefixes,
         std::deque<std::vector<int>> & audio_prefixes,
-        std::vector<int> & int_audio_tokens
+        std::vector<int> & int_audio_tokens,
+        int skip_prefix = 2 // for debugging set to 0
     ) {
     //ProfileScope profile(time_lmgen_step_us);
     /*
@@ -528,12 +532,13 @@ bool moshi_lmgen_step(
         }
     }
     // on_audio_hook
-    const int delay_steps = 16; // int(checkpoint_info.tts_config['audio_delay'] * mimi.frame_rate)
+    const int delay_steps = lm->delay_steps;
     for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
         if (state->offset < lm->delays[q + 1] + delay_steps)
             int_audio_tokens[q] = -1; // token_ids.zero
     }
     if ( audio_prefixes.size() ) {
+        state->skip = skip_prefix;
         auto audio_codes = audio_prefixes.front();
         for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
             if (audio_codes[q] != lm_ungenerated_token_id)
@@ -549,9 +554,17 @@ bool moshi_lmgen_step(
     for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
         state->cache[position][q + 1] = int_audio_tokens[q];
     }
+    
+    if ( state->skip > 0 ) {
+        --state->skip;
+        return false;
+    }
 
     if (state->offset <= lm->max_delay || depformer_replace_tokens)
         return false;
+
+    // TODO: gather using delays from config
+    int_audio_tokens[0] = state->cache[(state->offset - lm->max_delay) % state->cache.size()][1];
 
     for (auto x : int_audio_tokens) {
         if (x == -1)

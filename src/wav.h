@@ -72,8 +72,12 @@ int load_wav(
       || header.block_align != 2
       || header.bits_per_sample != 16 )
         throw std::runtime_error("unsupported format, only pcm mono 16bit supported");
-    if ( header.data_tag != 0x61746164 ) // "data"
-        throw std::runtime_error("'data' not found");
+    while ( header.data_tag != 0x61746164 ) {
+        if ( fseek( f, header.data_size, SEEK_CUR ) != 0 )
+            throw std::runtime_error("failed to seek to data");
+        if ( fread( &header.data_tag, 8, 1, f ) != 1 )
+            throw std::runtime_error("failed to read data from wave file");
+    }
     uint32_t nsamples = header.data_size / 2;
     samples.resize( nsamples );
     if ( fread( samples.data(), nsamples * 2, 1, f ) != 1 )

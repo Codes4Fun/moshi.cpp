@@ -46,6 +46,8 @@ struct moshi_ttsmodel_t {
 
     sentencepiece::SentencePieceProcessor sp;
 
+    int delay_steps;
+
     bool uses_cross;
     conditioners_t cond;
     voice_t voice;
@@ -89,6 +91,11 @@ moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend, std::string path = "k
     tts->mimi_weights->load();}
 
     tts->sp.Load( tokenizer_path );
+
+    tts->delay_steps = config->tts_config.audio_delay * tts->mimi->frame_rate;
+    assert( tts->delay_steps == 16 );
+    // we invasively put the on_audio_hook in lm, so we need to copy delay_steps
+    tts->lm->delay_steps = tts->delay_steps;
 
     tts->uses_cross = config->cross_attention;
 
@@ -233,15 +240,12 @@ void get_prefix(
     ScratchContext &ctx = *tts->scratch;
     const int n_q = tts->lm->n_q;
     const int max_delay = tts->lm->max_delay;
+    const int delay_steps = tts->delay_steps;
 
     for ( int i = 0; i < nframes; i++ )
         voice->text_prefixes.push_back( -1 ); // zero_id
 
-    for ( int i = 0; i < max_delay; i++ )
-        voice->text_prefixes.push_back( -2 ); // ungenerated
-
-    // HACK: adding max_delay
-    for ( int i = 0; i < max_delay; i++ ) {
+    for ( int i = 0; i < max_delay + delay_steps; i++ ) {
         voice->audio_prefixes.push_back({});
         auto & codes = voice->audio_prefixes.back();
         codes.resize( n_q );
@@ -295,7 +299,7 @@ void moshi_ttsmodel_generate_wav(
     TokenIds token_ids;
     float frame_rate = 12.5f; // mimi.frame_rate
     std::vector<std::string> script_ = {text};
-    bool multi_speaker = true; // speaker_wavs in lm.condition_provider.conditioners
+    bool multi_speaker = tts->uses_cross;
     int padding_between = 1;
     script_to_entries(
         entries_,
@@ -322,9 +326,9 @@ void moshi_ttsmodel_generate_wav(
 
     ScratchContext ctx( 256, backend );
     std::vector<std::vector<float>> pcms2;
-    std::vector<int> int_audio_tokens(32);
+    std::vector<int> int_audio_tokens( tts->lm->num_audio_codebooks );
     const int final_padding = 4;
-    const int delay_steps = 16; // int(checkpoint_info.tts_config['audio_delay'] * mimi.frame_rate)
+    const int delay_steps = tts->delay_steps;
     do {
         bool depformer_replace_tokens = (lmgen_state->offset < delay_steps);
         auto audio_tokens = moshi_lmgen_step(

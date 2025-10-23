@@ -1,5 +1,8 @@
 #pragma once
 
+#define SAMPLE_RATE 24000
+#define FRAME_RATE 12.5
+
 moshi_lmmodel_t * moshi_lmmodel_alloc_default( config_t * config ) {
     //int64_t dim_feedforward = config->hidden_scale * config->dim;
     
@@ -671,7 +674,8 @@ moshi_mimi_t * moshi_mimi_alloc_default( int n_q, bool encoder = true ) {
     }
 
     auto mimi = new moshi_mimi_t;
-    mimi->sample_rate = 24000;
+    mimi->sample_rate = SAMPLE_RATE;
+    mimi->frame_rate = FRAME_RATE;
     mimi->quantizer = mimi_quantizer;
     // decoder
     mimi->upsample = mimi_upsample_convtr;
