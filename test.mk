@@ -2,6 +2,7 @@
 HEADERS=\
  src/config.h\
  src/context.h\
+ src/ggml_wrap.h\
  src/json.h\
  src/loader.h\
  src/moshi/models/compression.h\
@@ -18,7 +19,8 @@ HEADERS=\
  src/moshi/quantization/vq.h\
  src/moshi/utils/sampling.h\
  src/safetensor.h\
- src/torch.h
+ src/torch.h\
+ src/wav.h\
 
 CPP_FLAGS=\
  -I ggml/include\
