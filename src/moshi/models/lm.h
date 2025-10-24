@@ -242,20 +242,20 @@ struct moshi_lmmodel_t {
     int max_delay;
     int dim;
     std::vector<int> depformer_weights_per_step_schedule;
-    std::vector<moshi_scaled_embedding_t*> emb;
-    moshi_scaled_embedding_demux_t * text_emb;
+    own_ptr_vector<moshi_scaled_embedding_t> emb;
+    own_ptr<moshi_scaled_embedding_demux_t> text_emb;
 
-    torch_nn_linear_t * text_linear;
-    moshi_streaming_transformer_t * transformer;
-    moshi_rms_norm_t * out_norm;
+    own_ptr<torch_nn_linear_t> text_linear;
+    own_ptr<moshi_streaming_transformer_t> transformer;
+    own_ptr<moshi_rms_norm_t> out_norm;
     bool depformer_multi_linear;
 
-    std::vector<torch_nn_linear_t*> depformer_in;
-    std::vector<moshi_scaled_embedding_t*> depformer_emb;
-    moshi_scaled_embedding_demux_t * depformer_text_emb;
-    moshi_streaming_transformer_t * depformer;
+    own_ptr_vector<torch_nn_linear_t> depformer_in;
+    own_ptr_vector<moshi_scaled_embedding_t> depformer_emb;
+    own_ptr<moshi_scaled_embedding_demux_t> depformer_text_emb;
+    own_ptr<moshi_streaming_transformer_t> depformer;
 
-    std::vector<torch_nn_linear_t*> linears;
+    own_ptr_vector<torch_nn_linear_t> linears;
 
     int num_codebooks; // n_q + 1
     int num_audio_codebooks; // n_q
@@ -282,8 +282,8 @@ void get_weights( WeightLoader * loader, std::string path, moshi_lmmodel_t * lm 
 }
 
 struct moshi_lmmodel_states_t {
-    moshi_streaming_transformer_state_t * transformer;
-    moshi_streaming_transformer_state_t * depformer;
+    own_ptr<moshi_streaming_transformer_state_t> transformer;
+    own_ptr<moshi_streaming_transformer_state_t> depformer;
     ggml_tensor * transformer_out;
 };
 

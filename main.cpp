@@ -23,6 +23,7 @@
 #define ON_NTH(nth, code) {static int count=0; if (count++ == (nth)) {code;}}
 
 //#define DISABLE_RAND
+#include "src/ptrs.h"
 #include "src/safetensor.h"
 #include "src/config.h"
 #include "src/context.h"
@@ -183,6 +184,10 @@ void tts_test() {
 
     cur = ggml_time_ms();
     printf( "generating done %ld\n", (cur - last));
+    
+    moshi_ttsmodel_free( tts );
+    
+    ggml_backend_free( backend );
 }
 
 int main(int argc, char **argv)
@@ -197,16 +202,18 @@ int main(int argc, char **argv)
         printf( "  \"%s\"\n", name );
     }
 
-	//top_k_cuda_test();
-	//test_rms_norm();
+    //top_k_cuda_test();
+    //test_rms_norm();
 
     tts_test();
 
 #if 0
-	replay_test();
+    replay_test();
 #endif
 
-	printf("press enter to continue");
-	getchar();
+#ifdef PAUSE_ON_EXIT
+    printf("press enter to continue");
+    getchar();
+#endif
 	return 0;
 }

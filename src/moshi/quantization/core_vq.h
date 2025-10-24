@@ -96,7 +96,7 @@ void get_weights( WeightLoader * loader, std::string path,
 \*****************************************************************************/
 
 struct moshi_vq_t {
-    moshi_EuclideanCodebook_t * _codebook;
+    own_ptr<moshi_EuclideanCodebook_t> _codebook;
 };
 
 ggml_tensor * moshi_vq_decode(
@@ -135,7 +135,7 @@ void get_weights( WeightLoader * loader, std::string path, moshi_vq_t * vq ) {
 \*****************************************************************************/
 
 struct moshi_residual_vq_t {
-    std::vector<moshi_vq_t*> layers;
+    own_ptr_vector<moshi_vq_t> layers;
 };
 
 ggml_tensor * moshi_residual_vq_decode(

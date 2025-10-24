@@ -52,7 +52,7 @@ void get_weights( WeightLoader * loader, std::string path,
 
 ggml_tensor * moshi_apply_weights_per_step_linear(
         ggml_context * ctx,
-        std::vector<torch_nn_linear_t*> & modules,
+        own_ptr_vector<torch_nn_linear_t> & modules,
         std::vector<int> & schedule,
         ggml_tensor * x,
         int offset ) {
@@ -98,7 +98,7 @@ ggml_tensor * moshi_apply_weights_per_step_linear(
 
 ggml_tensor * moshi_apply_weights_per_step_gating(
         ggml_context * ctx,
-        std::vector<moshi_activation_gating_t*> & modules,
+        own_ptr_vector<moshi_activation_gating_t> & modules,
         std::vector<int> & schedule,
         ggml_tensor * x,
         int offset ) {
@@ -150,17 +150,17 @@ struct moshi_kv_cache_state_t {
     int end_offset;
 };
 
-void moshi_kv_cache_state(
+moshi_kv_cache_state_t * moshi_kv_cache_state(
         StateContext * state_ctx,
         int dim_per_head,
         int capacity,
         int num_heads,
-        int batch_size,
-        moshi_kv_cache_state_t * &states ) {
-    states = new moshi_kv_cache_state_t;
+        int batch_size ) {
+    auto states = new moshi_kv_cache_state_t;
     NE ne = { dim_per_head, capacity, num_heads, batch_size };
     state_ctx->fill( ne, 0.f, &states->keys );
     state_ctx->fill( ne, 0.f, &states->values );
+    return states;
 }
 
 void init( moshi_kv_cache_state_t * state ) {
@@ -282,8 +282,8 @@ struct moshi_smha_t {
     int context;
     int weights_per_step;
     std::vector<int> weights_per_step_schedule;
-    std::vector<torch_nn_linear_t*> in_projs;
-    std::vector<torch_nn_linear_t*> out_projs;
+    own_ptr_vector<torch_nn_linear_t> in_projs;
+    own_ptr_vector<torch_nn_linear_t> out_projs;
 };
 
 struct moshi_smha_state_t {
@@ -291,7 +291,7 @@ struct moshi_smha_state_t {
     bool cache_ready = false;
     ggml_tensor * k_cross;
     ggml_tensor * v_cross;
-    moshi_kv_cache_state_t * kv_cache;
+    own_ptr<moshi_kv_cache_state_t> kv_cache;
 };
 
 moshi_smha_state_t * moshi_smha_state( StateContext * state_ctx,
@@ -302,8 +302,8 @@ moshi_smha_state_t * moshi_smha_state( StateContext * state_ctx,
     if ( ! attn->cross_attention ) {
         int capacity = attn->context? attn->context : attn->weights_per_step;
         int batch_size = 1;
-        moshi_kv_cache_state( state_ctx, dim_per_head, capacity, num_heads, batch_size,
-            state->kv_cache );
+        state->kv_cache = moshi_kv_cache_state( state_ctx, dim_per_head, capacity, num_heads,
+            batch_size );
         state->k_cross = NULL;
         state->v_cross = NULL;
     } else {
@@ -632,32 +632,32 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
 \*************************************************************/
 
 struct moshi_streaming_transformer_layer_t {
-    moshi_rms_norm_t * norm1_rms;
-    torch_nn_layer_norm_t * norm1;
+    own_ptr<moshi_rms_norm_t> norm1_rms;
+    own_ptr<torch_nn_layer_norm_t> norm1;
 
-    moshi_smha_t * self_attn;
+    own_ptr<moshi_smha_t> self_attn;
 
-    moshi_layer_scale_t * layer_scale_1;
+    own_ptr<moshi_layer_scale_t> layer_scale_1;
 
-    torch_nn_layer_norm_t * norm_cross;
-    moshi_smha_t * cross_attention;
+    own_ptr<torch_nn_layer_norm_t> norm_cross;
+    own_ptr<moshi_smha_t> cross_attention;
 
-    moshi_rms_norm_t * norm2_rms;
-    torch_nn_layer_norm_t * norm2;
+    own_ptr<moshi_rms_norm_t> norm2_rms;
+    own_ptr<torch_nn_layer_norm_t> norm2;
 
     //int weights_per_step; this is asserted the same as size of the schedule
     std::vector<int> weights_per_step_schedule;
-    std::vector<moshi_activation_gating_t*> gating;
-    torch_nn_linear_t * linear1;
-    torch_nn_linear_t * linear2;
+    own_ptr_vector<moshi_activation_gating_t> gating;
+    own_ptr<torch_nn_linear_t> linear1;
+    own_ptr<torch_nn_linear_t> linear2;
 
-    moshi_layer_scale_t * layer_scale_2;
+    own_ptr<moshi_layer_scale_t> layer_scale_2;
 };
 
 struct moshi_streaming_transformer_layer_state_t {
     int offset;
-    moshi_smha_state_t * self_attn;
-    moshi_smha_state_t * cross_attention;
+    own_ptr<moshi_smha_state_t> self_attn;
+    own_ptr<moshi_smha_state_t> cross_attention;
 };
 
 moshi_streaming_transformer_layer_state_t * moshi_streaming_transformer_layer_state(
@@ -801,11 +801,11 @@ void get_weights( WeightLoader * loader, std::string path,
 \*************************************************************/
 
 struct moshi_streaming_transformer_t {
-    std::vector<moshi_streaming_transformer_layer_t*> layers;
+    own_ptr_vector<moshi_streaming_transformer_layer_t> layers;
 };
 
 struct moshi_streaming_transformer_state_t {
-    std::vector<moshi_streaming_transformer_layer_state_t*> layers;
+    own_ptr_vector<moshi_streaming_transformer_layer_state_t> layers;
 };
 
 moshi_streaming_transformer_state_t * moshi_streaming_transformer_state(
@@ -835,7 +835,7 @@ ggml_tensor * moshi_streaming_transformer(
     //ProfileScope profile(transformer_us);
 
     // self_attn kv_cache capacity, to build k_pos once
-    auto attn = m->layers[0]->self_attn;
+    auto attn = m->layers[0]->self_attn.ptr;
     int offset = states->layers[0]->self_attn->offset;
     int64_t T = x->ne[1];
     auto attn_bias = calculate_attn_bias( ctx, attn, T, offset );

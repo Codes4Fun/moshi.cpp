@@ -13,8 +13,8 @@
 
 struct moshi_scaled_embedding_demux_t {
     int num_embeddings;
-    torch_nn_linear_t * out1;
-    torch_nn_linear_t * out2;
+    own_ptr<torch_nn_linear_t> out1;
+    own_ptr<torch_nn_linear_t> out2;
     ggml_tensor * weight;
 };
 
@@ -59,7 +59,7 @@ ggml_tensor * moshi_scaled_embedding_demux(
 }
 
 struct moshi_scaled_embedding_t {
-    torch_nn_linear_t * low_rank;
+    own_ptr<torch_nn_linear_t> low_rank;
     ggml_tensor * weight;
 };
 

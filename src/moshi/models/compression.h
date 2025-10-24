@@ -2,15 +2,15 @@
 
 struct moshi_mimi_t {
     bool initialized;
-    moshi_split_rvq_t * quantizer;
+    own_ptr<moshi_split_rvq_t> quantizer;
     // decoder
-    moshi_streaming_conv_transpose_1d_t * upsample;
-    moshi_streaming_transformer_t * decoder_transformer;
-    moshi_seanet_decoder_t * decoder;
+    own_ptr<moshi_streaming_conv_transpose_1d_t> upsample;
+    own_ptr<moshi_streaming_transformer_t> decoder_transformer;
+    own_ptr<moshi_seanet_decoder_t> decoder;
     // encoder
-    moshi_streaming_conv_1d_t * downsample;
-    moshi_streaming_transformer_t * encoder_transformer;
-    moshi_seanet_encoder_t * encoder;
+    own_ptr<moshi_streaming_conv_1d_t> downsample;
+    own_ptr<moshi_streaming_transformer_t> encoder_transformer;
+    own_ptr<moshi_seanet_encoder_t> encoder;
     float frame_rate;
     int sample_rate;
 };
@@ -18,12 +18,12 @@ struct moshi_mimi_t {
 struct moshi_mimi_state_t {
     // decoder
     ggml_tensor * upsample;
-    moshi_streaming_transformer_state_t * decoder_transformer;
-    moshi_seanet_decoder_states_t * decoder;
+    own_ptr<moshi_streaming_transformer_state_t> decoder_transformer;
+    own_ptr<moshi_seanet_decoder_states_t> decoder;
     // encoder
     ggml_tensor * downsample;
-    moshi_streaming_transformer_state_t * encoder_transformer;
-    moshi_seanet_encoder_states_t * encoder;
+    own_ptr<moshi_streaming_transformer_state_t> encoder_transformer;
+    own_ptr<moshi_seanet_encoder_states_t> encoder;
 };
 
 moshi_mimi_state_t * moshi_mimi_states( StateContext * state_ctx,
@@ -42,8 +42,6 @@ moshi_mimi_state_t * moshi_mimi_states( StateContext * state_ctx,
             mimi->encoder );
     } else*/ {
         states->downsample = NULL;
-        states->encoder_transformer = NULL;
-        states->encoder = NULL;
     }
     states->decoder = create_moshi_seanet_decoder_states( state_ctx,
             mimi->decoder, decoder_ne );
@@ -54,8 +52,6 @@ moshi_mimi_state_t * moshi_mimi_encoder_states( StateContext * state_ctx,
         moshi_mimi_t * mimi ) {
     auto states = new moshi_mimi_state_t;
     states->upsample = NULL;
-    states->decoder_transformer = NULL;
-    states->decoder = NULL;
     moshi_streaming_conv_1d_state( state_ctx,
         mimi->downsample, states->downsample );
     states->encoder_transformer = moshi_streaming_transformer_state( state_ctx,

@@ -10,9 +10,9 @@
 
 struct moshi_rvq_t {
     int n_q;
-    moshi_residual_vq_t * vq;
-    torch_nn_conv1d_t * output_proj;
-    torch_nn_conv1d_t * input_proj;
+    own_ptr<moshi_residual_vq_t> vq;
+    own_ptr<torch_nn_conv1d_t> output_proj;
+    own_ptr<torch_nn_conv1d_t> input_proj;
 };
 
 ggml_tensor * moshi_rvq_decode(
@@ -59,8 +59,8 @@ void get_weights( WeightLoader * loader, std::string path, moshi_rvq_t * rvq ) {
 
 struct moshi_split_rvq_t {
     int n_q_semantic;
-    moshi_rvq_t * rvq_first;
-    moshi_rvq_t * rvq_rest;
+    own_ptr<moshi_rvq_t> rvq_first;
+    own_ptr<moshi_rvq_t> rvq_rest;
 };
 
 ggml_tensor * moshi_split_rvq_decode(

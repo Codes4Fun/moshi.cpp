@@ -5,8 +5,8 @@
 \*****************************************/
 
 struct moshi_activation_gating_t {
-    torch_nn_linear_t * linear_in;
-    torch_nn_linear_t * linear_out;
+    own_ptr<torch_nn_linear_t> linear_in;
+    own_ptr<torch_nn_linear_t> linear_out;
 };
 
 ggml_tensor * moshi_activation_gating(

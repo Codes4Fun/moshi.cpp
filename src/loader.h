@@ -32,6 +32,7 @@ class WeightLoader {
     std::vector<alloc_request_t> alloc_requests;
     std::vector<std::function<void(WeightLoader*)>> init_requests;
 
+private:
     WeightLoader(SafeTensorFile * stf, ScratchContext * scratch, ggml_backend * backend = NULL) {
         assert( !scratch->backend ); // only cpu backends supported
         this->stf = stf;
@@ -40,12 +41,18 @@ class WeightLoader {
         ctx = NULL;
         buffer = NULL;
     }
+public:
+    static WeightLoader * from_safetensor( const char * filename, ScratchContext * scratch, ggml_backend * backend = NULL ) {
+        auto stf = SafeTensorFile::from_file( filename );
+        return new WeightLoader( stf, scratch, backend );
+    }
 
     ~WeightLoader() {
         if (buffer)
             ggml_backend_buffer_free( buffer );
         if (ctx)
             ggml_free( ctx );
+        delete stf;
     }
 
     safetensor_t * find( std::string name ) {

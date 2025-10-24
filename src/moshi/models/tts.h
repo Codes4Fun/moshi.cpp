@@ -35,14 +35,14 @@ struct voice_t {
 };
 
 struct moshi_ttsmodel_t {
-    ScratchContext * scratch_cpu;
-    ScratchContext * scratch;
+    own_ptr<ScratchContext> scratch_cpu;
+    own_ptr<ScratchContext> scratch;
 
-    moshi_lmmodel_t * lm;
-    WeightLoader * weights;
+    own_ptr<moshi_lmmodel_t> lm;
+    own_ptr<WeightLoader> weights;
 
-    moshi_mimi_t * mimi;
-    WeightLoader * mimi_weights;
+    own_ptr<moshi_mimi_t> mimi;
+    own_ptr<WeightLoader> mimi_weights;
 
     sentencepiece::SentencePieceProcessor sp;
 
@@ -52,6 +52,26 @@ struct moshi_ttsmodel_t {
     conditioners_t cond;
     voice_t voice;
 };
+
+void moshi_tts_free_voice( moshi_ttsmodel_t * tts ) {
+    if ( tts->voice.buffer ) {
+        ggml_backend_buffer_free( tts->voice.buffer );
+    }
+    if ( tts->voice.ctx ) {
+        ggml_free( tts->voice.ctx );
+    }
+    tts->voice.ctx = NULL;
+    tts->voice.buffer = NULL;
+    tts->voice.sum = NULL;
+    tts->voice.cross = NULL;
+    tts->voice.text_prefixes.clear();
+    tts->voice.audio_prefixes.clear();
+}
+
+void moshi_ttsmodel_free( moshi_ttsmodel_t * tts ) {
+    moshi_tts_free_voice( tts );
+    delete tts;
+}
 
 moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend, std::string path = "kyutai/tts-1.6b-en_fr" ) {
     auto config = get_config( (path + "/config.json").c_str() );
@@ -67,17 +87,15 @@ moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend, std::string path = "k
     tts->scratch_cpu = new ScratchContext( 256 );
     tts->scratch = new ScratchContext( 256, backend );
 
-    auto lm_safetensor = SafeTensorFile::from_file( lm_path.c_str() );
     tts->lm = moshi_lmmodel_alloc_default( config );
-    tts->weights = new WeightLoader( lm_safetensor, tts->scratch_cpu, backend );
+    tts->weights = WeightLoader::from_safetensor( lm_path.c_str(), tts->scratch_cpu, backend );
     get_weights( tts->weights, "lm.", tts->lm );
     get_weights( tts->weights, &tts->cond );
     {CAPTURE_GROUP("lm");
     tts->weights->load();}
 
-    auto mimi_safetensor = SafeTensorFile::from_file( mimi_path.c_str() );
     tts->mimi = moshi_mimi_alloc_default( config->n_q );
-    tts->mimi_weights = new WeightLoader( mimi_safetensor, tts->scratch_cpu, backend );
+    tts->mimi_weights = WeightLoader::from_safetensor( mimi_path.c_str(), tts->scratch_cpu, backend );
     get_weights( tts->mimi_weights, "mimi.quantizer.", tts->mimi->quantizer );
     get_weights( tts->mimi_weights, "mimi.upsample.convtr.", tts->mimi->upsample );
     get_weights( tts->mimi_weights, "mimi.decoder_transformer.transformer.", tts->mimi->decoder_transformer );
@@ -103,6 +121,8 @@ moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend, std::string path = "k
     tts->voice.buffer = NULL;
     tts->voice.sum = NULL;
     tts->voice.cross = NULL;
+    
+    delete config;
 
     return tts;
 }
@@ -111,8 +131,8 @@ bool load_voice(
         std::string filename,
         moshi_ttsmodel_t * tts,
         ggml_backend * backend ) {
-    SafeTensorFile * stf = SafeTensorFile::from_file( filename.c_str() );
-    auto loader = new WeightLoader( stf, tts->scratch_cpu, backend );
+    assert( tts->uses_cross );
+    auto loader = WeightLoader::from_safetensor( filename.c_str(), tts->scratch_cpu, backend );
     // TODO: remove prefix "voice"
     ggml_tensor * speaker_wavs;
     loader->fetch( &speaker_wavs, "voice.speaker_wavs" );
@@ -197,18 +217,26 @@ void get_prefix(
         moshi_ttsmodel_t * tts,
         ggml_backend * backend
 ) {
+    assert( ! tts->uses_cross );
+    const int frame_size = 1920;
     std::vector<short> data;
     auto sample_rate = load_wav( audiopath, data );
     printf( "sample_rate %d\n", sample_rate );
     std::vector<float> samples;
     if ( sample_rate == 24000 ) {
-        assert( data.size() == 240000 ); // only support 10 second clips currently
-        samples.resize( data.size() );
+        int nsamples = (int)data.size();
+        assert( nsamples > frame_size );
+        int extra = nsamples % frame_size;
+        nsamples -= extra;
+        samples.resize( nsamples );
         for ( size_t s = 0; s < samples.size(); s++ )
             samples[s] = data[s] / 32768.f;
     } else if (sample_rate == 48000 ) {
-        assert( data.size() == 480000 ); // only support 10 second clips currently
-        samples.resize( data.size() / 2 );
+        int nsamples = (int)data.size() / 2;
+        assert( nsamples > frame_size );
+        int extra = nsamples % frame_size;
+        nsamples -= extra;
+        samples.resize( nsamples );
         for ( size_t s = 0; s < samples.size(); s++ ) {
             int a = data[s*2];
             int b = data[s*2+1];
@@ -218,11 +246,10 @@ void get_prefix(
         assert( false ); // other sample rates not yet supported
     }
 
-    const int frame_size = 1920;
     const int nframes = (int)samples.size() / frame_size;
 
     StateContext state_ctx( backend );
-    auto states = moshi_mimi_encoder_states( &state_ctx, tts->mimi );
+    own_ptr<moshi_mimi_state_t> states = moshi_mimi_encoder_states( &state_ctx, tts->mimi );
     // we don't need to pad because 24khz at 10 seconds fits perfectly
     //auto x = ctx.input( GGML_NE(samples.size()), samples );
     ggml_tensor * x = NULL;

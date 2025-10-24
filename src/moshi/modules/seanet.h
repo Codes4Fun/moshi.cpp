@@ -7,8 +7,8 @@
 \*****************************************************************************/
 
 struct moshi_seanet_resnet_block_t {
-    moshi_streaming_conv_1d_t * block_1;
-    moshi_stateless_conv_1d_t * block_3;
+    own_ptr<moshi_streaming_conv_1d_t> block_1;
+    own_ptr<moshi_stateless_conv_1d_t> block_3;
 };
 
 ggml_tensor * moshi_seanet_resnet_block(
@@ -52,21 +52,21 @@ void moshi_seanet_resnet_block_state( StateContext * state_ctx,
 \*****************************************************************************/
 
 struct moshi_seanet_encoder_t {
-    moshi_streaming_conv_1d_t * model_0;
-    moshi_seanet_resnet_block_t * model_1;
+    own_ptr<moshi_streaming_conv_1d_t> model_0;
+    own_ptr<moshi_seanet_resnet_block_t> model_1;
     // elu
-    moshi_streaming_conv_1d_t * model_3;
-    moshi_seanet_resnet_block_t * model_4;
+    own_ptr<moshi_streaming_conv_1d_t> model_3;
+    own_ptr<moshi_seanet_resnet_block_t> model_4;
     // elu
-    moshi_streaming_conv_1d_t * model_6;
-    moshi_seanet_resnet_block_t * model_7;
+    own_ptr<moshi_streaming_conv_1d_t> model_6;
+    own_ptr<moshi_seanet_resnet_block_t> model_7;
     // elu
-    moshi_streaming_conv_1d_t * model_9;
-    moshi_seanet_resnet_block_t * model_10;
+    own_ptr<moshi_streaming_conv_1d_t> model_9;
+    own_ptr<moshi_seanet_resnet_block_t> model_10;
     // elu
-    moshi_streaming_conv_1d_t * model_12;
+    own_ptr<moshi_streaming_conv_1d_t> model_12;
     // elu
-    moshi_streaming_conv_1d_t * model_14;
+    own_ptr<moshi_streaming_conv_1d_t> model_14;
 };
 
 struct moshi_seanet_encoder_states_t {
@@ -155,16 +155,16 @@ moshi_seanet_encoder_states_t * create_moshi_seanet_encoder_states(
 \*****************************************************************************/
 
 struct moshi_seanet_decoder_t {
-    moshi_streaming_conv_1d_t * model_0;
-    moshi_streaming_conv_transpose_1d_t * model_2;
-    moshi_seanet_resnet_block_t * model_3;
-    moshi_streaming_conv_transpose_1d_t * model_5;
-    moshi_seanet_resnet_block_t * model_6;
-    moshi_streaming_conv_transpose_1d_t * model_8;
-    moshi_seanet_resnet_block_t * model_9;
-    moshi_streaming_conv_transpose_1d_t * model_11;
-    moshi_seanet_resnet_block_t * model_12;
-    moshi_streaming_conv_1d_t * model_14;
+    own_ptr<moshi_streaming_conv_1d_t> model_0;
+    own_ptr<moshi_streaming_conv_transpose_1d_t> model_2;
+    own_ptr<moshi_seanet_resnet_block_t> model_3;
+    own_ptr<moshi_streaming_conv_transpose_1d_t> model_5;
+    own_ptr<moshi_seanet_resnet_block_t> model_6;
+    own_ptr<moshi_streaming_conv_transpose_1d_t> model_8;
+    own_ptr<moshi_seanet_resnet_block_t> model_9;
+    own_ptr<moshi_streaming_conv_transpose_1d_t> model_11;
+    own_ptr<moshi_seanet_resnet_block_t> model_12;
+    own_ptr<moshi_streaming_conv_1d_t> model_14;
 };
 
 struct moshi_seanet_decoder_states_t {

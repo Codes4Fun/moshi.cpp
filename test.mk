@@ -18,6 +18,7 @@ HEADERS=\
  src/moshi/quantization/core_vq.h\
  src/moshi/quantization/vq.h\
  src/moshi/utils/sampling.h\
+ src/ptrs.h\
  src/safetensor.h\
  src/torch.h\
  src/wav.h\
@@ -34,7 +35,7 @@ testd: main.cpp ${HEADERS}
 	g++ -ggdb -O0 -std=c++20 -static-libstdc++ -fvisibility-inlines-hidden -o $@ ${CPP_FLAGS} $< ${LINK_FLAGS}
 
 test: main.cpp ${HEADERS}
-	g++ -O3 -std=c++20 -static-libstdc++ -fvisibility-inlines-hidden -o $@ ${CPP_FLAGS} $< ${LINK_FLAGS}
+	g++ -g -O3 -std=c++20 -static-libstdc++ -fvisibility-inlines-hidden -o $@ ${CPP_FLAGS} $< ${LINK_FLAGS}
 
 debug: testd
 	LD_LIBRARY_PATH=$(CURDIR) gdb ./testd
