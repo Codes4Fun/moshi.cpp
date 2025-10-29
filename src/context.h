@@ -131,6 +131,54 @@ class SafeTensorFile {
     }
 };
 
+// single tensor context
+class own_ctx_tensor {
+public:
+    ggml_context * ctx;
+    ggml_tensor * tensor;
+    ggml_backend_buffer * buffer;
+    own_ctx_tensor() {
+        ctx = NULL;
+        tensor = NULL;
+        buffer = NULL;
+    }
+    void reset() {
+        if ( buffer )
+            ggml_backend_buffer_free( buffer );
+        if ( ctx )
+            ggml_free( ctx );
+        buffer = NULL;
+        ctx = NULL;
+    }
+    ~own_ctx_tensor() {
+        reset();
+    }
+    void new_tensor( NE ne, ggml_type type, ggml_backend * backend ) {
+        assert( backend ); // TODO: support non-backend options
+        reset();
+        if ( backend ) {
+            ctx = ggml_init({
+                /*.mem_size   =*/ ggml_tensor_overhead(),
+                /*.mem_buffer =*/ NULL,
+                /*.no_alloc   =*/ true,
+            });
+            assert( ctx );
+            tensor = ggml_new_tensor( ctx, type, 4, ne );
+            assert( tensor );
+            buffer = ggml_backend_alloc_ctx_tensors( ctx, backend );
+            assert( buffer );
+        }
+    }
+    operator ggml_tensor* () {
+        return tensor;
+    }
+    ggml_tensor * operator->() {
+        return tensor;
+    }
+    own_ctx_tensor( const own_ctx_tensor& ) = delete; 
+    own_ctx_tensor & operator=( own_ctx_tensor& ) = delete;
+};
+
 class ScratchContext {
     public:
     ggml_backend * backend;

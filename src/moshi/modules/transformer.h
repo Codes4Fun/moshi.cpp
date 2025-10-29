@@ -335,12 +335,22 @@ void cache_kv( ggml_context * ctx, moshi_smha_state_t * state,
 
 // utility that can be done once and shared across layers
 ggml_tensor * calculate_attn_bias( ScratchContext & ctx, moshi_smha_t * attn,
-        int64_t T, int64_t noffset ) {
+        int64_t T, int64_t noffset, bias_pattern_t * pattern = NULL ) {
     if ( ! attn->causal )
         return NULL;
+
     ggml_tensor * pos_k;
     assert( !attn->cross_attention );
     int capacity = attn->context? attn->context : attn->weights_per_step;
+
+    if ( pattern ) {
+        if ( ! pattern->tensor ) {
+            //create_bias_pattern( ctx.backend, *pattern, capacity, T );
+            create_bias_pattern( ctx.backend, *pattern, capacity, T, 0, -INFINITY );
+        }
+        return bias_pattern_index( ctx, *pattern, noffset );
+    }
+
     pos_k = moshi_kv_cache_get_positions( ctx, noffset + T, capacity );
 
     auto offset = ctx.constant( (float)noffset );
@@ -524,7 +534,7 @@ ggml_tensor * moshi_streaming_multihead_attention(
         attn_bias = calculate_attn_bias( ctx, attn, T, state->offset );
 
     //x = nn.functional.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
-    auto x = torch_nn_functional_scaled_dot_product_attention( ctx,
+    auto x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
         q, k, v, attn_bias );//, dropout_p=0.0);
 
     //x = rearrange(x, "b h t d -> b t (h d)")
@@ -802,6 +812,7 @@ void get_weights( WeightLoader * loader, std::string path,
 
 struct moshi_streaming_transformer_t {
     own_ptr_vector<moshi_streaming_transformer_layer_t> layers;
+    bias_pattern_t pattern;
 };
 
 struct moshi_streaming_transformer_state_t {
@@ -838,7 +849,7 @@ ggml_tensor * moshi_streaming_transformer(
     auto attn = m->layers[0]->self_attn.ptr;
     int offset = states->layers[0]->self_attn->offset;
     int64_t T = x->ne[1];
-    auto attn_bias = calculate_attn_bias( ctx, attn, T, offset );
+    auto attn_bias = calculate_attn_bias( ctx, attn, T, offset, &m->pattern );
 
     for ( size_t idx = 0; idx < m->layers.size(); idx++ ) {
         CAPTURE_GROUP( "layer." + std::to_string(idx) );

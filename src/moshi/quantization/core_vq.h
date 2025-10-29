@@ -21,7 +21,7 @@ ggml_tensor * moshi_EuclideanCodebook_decode(
     corresponding to the centroids associated to each code index.
     */
     assert( (codes->type == GGML_TYPE_I64 || codes->type == GGML_TYPE_I32) );
-    return ggml_get_rows( ctx, codebook->embedding, codes );
+    return ggml_get_rows( ctx, codebook->embedding, ggml_cont(ctx, codes) );
 }
 
 ggml_tensor * moshi_EuclideanCodebook_encode(

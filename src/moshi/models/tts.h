@@ -250,13 +250,8 @@ void get_prefix(
 
     StateContext state_ctx( backend );
     own_ptr<moshi_mimi_state_t> states = moshi_mimi_encoder_states( &state_ctx, tts->mimi );
-    // we don't need to pad because 24khz at 10 seconds fits perfectly
-    //auto x = ctx.input( GGML_NE(samples.size()), samples );
     ggml_tensor * x = NULL;
     state_ctx.new_tensor( GGML_NE(samples.size()), GGML_TYPE_F32, &x );
-    //auto x = ggml_new_tensor_1d( state_ctx.ctx, GGML_TYPE_F32, samples.size() );
-    //int frame_size = 1920; // TODO: setup mimi.sample_rate / mimi.frame_rate
-    //x = pad_for_conv1d( x, frame_size, frame_size );
     state_ctx.alloc();
     state_ctx.init();
     init( states );
@@ -264,7 +259,6 @@ void get_prefix(
     ggml_backend_tensor_set( x, samples.data(), 0, ggml_nbytes( x ) );
     
     auto voice = &tts->voice;
-    ScratchContext &ctx = *tts->scratch;
     const int n_q = tts->lm->n_q;
     const int max_delay = tts->lm->max_delay;
     const int delay_steps = tts->delay_steps;
@@ -282,9 +276,10 @@ void get_prefix(
     }
 
     // encode one frame at a time for now
-    const auto x_nb = 1920 * x->nb[0];
+    ScratchContext &ctx = *tts->scratch;
+    const auto x_nb = frame_size * x->nb[0];
     for ( int i = 0; i < nframes; i++ ) {
-        auto x_view = ggml_view_1d( ctx, x, 1920, i * x_nb );
+        auto x_view = ggml_view_1d( ctx, x, frame_size, i * x_nb );
         auto codes = mimi_encode( ctx, tts->mimi, states, x_view );
         auto cast = ggml_cast( ctx, codes, GGML_TYPE_I32 );
         voice->audio_prefixes.push_back({});

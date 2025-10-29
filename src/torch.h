@@ -107,6 +107,10 @@ ggml_tensor * torch_nn_linear_view(
     return y;
 }
 
+/*****************************************************************************\
+ * torch.nn.functional.scaled_dot_product_attention
+\*****************************************************************************/
+
 // scaled_dot_product_attention used -infinity which does not multiply against 0
 // so changed to use a very large negative number, would be nice to have a 
 // mathematical way to generate the bias from a mask, as opposed to a boolean
@@ -137,3 +141,87 @@ ggml_tensor * torch_nn_functional_scaled_dot_product_attention(
     return x;
 }
 
+/*****************************************************************************\
+ * custom scaled_dot_product_attention
+ * 
+ * 1) create a pattern
+ * 2) index into the pattern to get the bias
+ * 3) pass that bias to the custom scaled_dot_product_attention
+\*****************************************************************************/
+
+struct bias_pattern_t {
+    int capacity;
+    int t;
+    int start; // = pattern->capacity * 2 - pattern->t
+    own_ctx_tensor tensor;
+};
+
+int g_bias_pattern = 0;
+void create_bias_pattern(
+        ggml_backend * backend,
+        bias_pattern_t & pattern,
+        int capacity,
+        int t,
+        float hi = 1.f, float lo = 0.f
+) {
+    auto & tensor = pattern.tensor;
+    int start = capacity * 2 - t;
+    int width = start + capacity;
+    tensor.new_tensor( GGML_NE( width, t ), GGML_TYPE_F32, backend );
+    pattern.capacity = capacity;
+    pattern.t = t;
+    pattern.start = start;
+    auto nelements = ggml_nelements( tensor );
+    std::vector<float> values( nelements );
+    for ( int j = 0; j < t; j++ ) {
+        int toff = j * width;
+        int right = start + 1 + j;
+        for ( int i = 0; i < right; i++ ) {
+            values[ toff + i ] = hi;
+        }
+        for ( int i = right; i < width; i++ ) {
+            values[ toff + i ] = lo;
+        }
+        int b = t - j - 1;
+        toff += capacity - 1;
+        for ( int i = 0; i < b; i++ ) {
+            values[ toff - i ] = lo;
+        }
+    }
+    ggml_backend_tensor_set( tensor, values.data(), 0, ggml_nbytes( tensor ) );
+    g_bias_pattern++;
+}
+
+ggml_tensor * bias_pattern_index(
+        ggml_context * ctx,
+        bias_pattern_t & pattern,
+        int offset
+) {
+    auto & tensor = pattern.tensor;
+    if ( offset <= pattern.capacity )
+        offset = pattern.start - offset;
+    else
+        offset = pattern.capacity - ( offset % pattern.capacity );
+    auto view = ggml_view_2d( ctx,
+        tensor,
+        pattern.capacity,
+        pattern.t,
+        tensor->nb[1],
+        offset * tensor->nb[0] );
+    auto cont = ggml_cont( ctx, view );
+    return cont;
+}
+
+ggml_tensor * torch_nn_functional_scaled_dot_product_attention_custom(
+        ScratchContext & ctx,
+        ggml_tensor * query,
+        ggml_tensor * key,
+        ggml_tensor * value,
+        ggml_tensor * attn_bias ) {
+    float scale_factor = 1.f / sqrtf( query->ne[0] );
+    auto attn_weight = ggml_mul_mat( ctx, key, query );
+    attn_weight = ggml_soft_max_ext( ctx, attn_weight, attn_bias, scale_factor, 0.0f );
+    value = ggml_cont( ctx, ggml_transpose( ctx, value ) );
+    auto x = ggml_mul_mat( ctx, value, attn_weight );
+    return x;
+}

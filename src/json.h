@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string.h>
+
 struct const_str_t {
     const char * s;
     const int length;
