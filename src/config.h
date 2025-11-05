@@ -71,7 +71,6 @@ int config_tts_parse( const_str_t & json, int offset, config_tts_t & tts_config 
             int key_start, int key_length
         ) {
 		const char * key = json.s + key_start;
-        //offset = str_skip_whitespaces( json, offset );
         switch( key_length ) {
         case 11:   if (strncmp( key, "audio_delay", 11) == 0) {
                 return json_float_parse( json, offset, tts_config.audio_delay );
@@ -79,6 +78,32 @@ int config_tts_parse( const_str_t & json, int offset, config_tts_t & tts_config 
             break;
         case 19:   if (strncmp( key, "second_stream_ahead", 19) == 0) {
                 return json_int64_parse( json, offset, tts_config.second_stream_ahead );
+            }
+            break;
+        }
+        return json_skip_value( json, offset );
+    });
+    return offset;
+}
+
+struct config_stt_t {
+    float audio_delay_seconds; // 0.5
+    float audio_silence_prefix_seconds; // 0.0
+};
+
+int config_stt_parse( const_str_t & json, int offset, config_stt_t & stt_config ) {
+    offset = json_object_parse(json, offset, [&stt_config](
+            const_str_t & json, int offset,
+            int key_start, int key_length
+        ) {
+		const char * key = json.s + key_start;
+        switch( key_length ) {
+        case 19:   if (strncmp( key, "audio_delay_seconds", 19) == 0) {
+                return json_float_parse( json, offset, stt_config.audio_delay_seconds );
+            }
+            break;
+        case 28:   if (strncmp( key, "audio_silence_prefix_seconds", 28) == 0) {
+                return json_float_parse( json, offset, stt_config.audio_silence_prefix_seconds );
             }
             break;
         }
@@ -117,6 +142,8 @@ int config_model_id_parse( const_str_t & json, int offset, config_model_id_t & m
 struct config_lm_gen_t {
     float temp; // 0.6
     float temp_text; // 0.6
+    int64_t top_k; // 250
+    int64_t top_k_text; // 50
 };
 
 int config_lm_gen_parse( const_str_t & json, int offset, config_lm_gen_t & lm_gen_config ) {
@@ -131,8 +158,16 @@ int config_lm_gen_parse( const_str_t & json, int offset, config_lm_gen_t & lm_ge
                 return json_float_parse( json, offset, lm_gen_config.temp );
             }
             break;
-        case 9:   if (strncmp( key, "text_temp", 9) == 0) {
+        case 9:   if (strncmp( key, "temp_text", 9) == 0) {
                 return json_float_parse( json, offset, lm_gen_config.temp_text );
+            }
+            break;
+        case 5:   if (strncmp( key, "top_k", 5) == 0) {
+                return json_int64_parse( json, offset, lm_gen_config.top_k );
+            }
+            break;
+        case 10:   if (strncmp( key, "top_k_text", 10) == 0) {
+                return json_int64_parse( json, offset, lm_gen_config.top_k_text );
             }
             break;
         }
@@ -162,7 +197,7 @@ struct config_t {
     int64_t depformer_dim; // 1024
     int64_t depformer_num_heads; // 16
     int64_t depformer_num_layers; // 4
-    int64_t depformer_dim_feedforward; // 3072
+    //int64_t depformer_dim_feedforward; // 3072   no needed, it's in the weight files
     bool depformer_multi_linear; // true
     std::string depformer_pos_emb; // "none"
     bool depformer_weights_per_step; // true
@@ -173,6 +208,7 @@ struct config_t {
     config_fuser_t fuser;
     bool cross_attention; // true || false
     config_tts_t tts_config;
+    config_stt_t stt_config;
     config_model_id_t model_id;
     std::vector<int64_t> depformer_weights_per_step_schedule; // 32 || 16
     std::string model_type;
@@ -184,6 +220,10 @@ struct config_t {
 
 config_t * get_config( const char * filename ) {
     auto config = new config_t;
+    config->demux_second_stream = false;
+    config->moshi_name = "model.safetensors";
+    config->stt_config.audio_silence_prefix_seconds = 1.0;
+    config->stt_config.audio_delay_seconds = 5.0;
 
 	auto f = fopen( filename, "rb" );
 	assert( f );
@@ -260,6 +300,8 @@ config_t * get_config( const char * filename ) {
                 return json_int64_parse( json, offset, config->max_period );
             } else if (strncmp( key, "tts_config", 10) == 0 ) {
                 return config_tts_parse( json, offset, config->tts_config );
+            } else if (strncmp( key, "stt_config", 10) == 0 ) {
+                return config_stt_parse( json, offset, config->stt_config );
             } else if (strncmp( key, "model_type", 10) == 0 ) {
                 return json_string_parse( json, offset, config->model_type );
             } else if (strncmp( key, "moshi_name", 10) == 0 ) {
@@ -319,10 +361,11 @@ config_t * get_config( const char * filename ) {
                 return json_int64_parse( json, offset, config->existing_text_padding_id );
             }
             break;
-        case 25:   if (strncmp( key, "depformer_dim_feedforward", 25) == 0 ) {
-                return json_int64_parse( json, offset, config->depformer_dim_feedforward );
-            }
-            break;
+        // this is not used anywhere, its in the dimension of the weight files
+        //case 25:   if (strncmp( key, "depformer_dim_feedforward", 25) == 0 ) {
+        //        return json_int64_parse( json, offset, config->depformer_dim_feedforward );
+        //    }
+        //    break;
         case 26:   if (strncmp( key, "depformer_weights_per_step", 26) == 0 ) {
                 return json_bool_parse( json, offset, config->depformer_weights_per_step );
             }

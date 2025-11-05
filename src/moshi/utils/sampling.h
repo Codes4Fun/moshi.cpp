@@ -61,8 +61,15 @@ int moshi_sample_token_int(
     //assert top_p == 0.0, top_p
     /* Given logits of shape [*, Card], returns a LongTensor of shape [*]. */
     // Apply softmax for sampling if temp > 0. Else, do greedy sampling to avoid zero division error.
-    auto logits_temp = ggml_scale( ctx, logits, 1.0 / temp);
-    auto probs = ggml_soft_max( ctx, logits_temp );
+    if ( use_sampling && temp > 0.f ) {
+        auto logits_temp = ggml_scale( ctx, logits, 1.0 / temp);
+        auto probs = ggml_soft_max( ctx, logits_temp );
 
-    return moshi_sample_top_k_int( ctx, probs, top_k );
+        return moshi_sample_top_k_int( ctx, probs, top_k );
+    }
+    auto next_token = ggml_argmax( ctx, logits );
+    int next_token_int;
+    ctx.build_forward_expand( next_token, &next_token_int );
+    ctx.compute();
+    return next_token_int;
 }

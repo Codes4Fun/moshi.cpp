@@ -64,63 +64,69 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( config_t * config ) {
     }
 
     int depformer_num_weights = 1;
-    if ( config->depformer_weights_per_step_schedule.size() ) {
-        auto max = config->depformer_weights_per_step_schedule[0];
-        for ( size_t i = 0; i < config->depformer_weights_per_step_schedule.size(); i++ )
-            if ( max < config->depformer_weights_per_step_schedule[i] )
-                max = config->depformer_weights_per_step_schedule[i];
-        depformer_num_weights = max + 1;
+    if ( config->depformer_multi_linear ) {
+        depformer_num_weights = config->dep_q;
+        if ( config->depformer_weights_per_step_schedule.size() ) {
+            auto max = config->depformer_weights_per_step_schedule[0];
+            for ( size_t i = 0; i < config->depformer_weights_per_step_schedule.size(); i++ )
+                if ( max < config->depformer_weights_per_step_schedule[i] )
+                    max = config->depformer_weights_per_step_schedule[i];
+            depformer_num_weights = max + 1;
+        }
     }
 
-    auto lm_depformer = new moshi_streaming_transformer_t;
-    lm_depformer->layers.resize( config->depformer_num_layers );
-    for ( int64_t i = 0; i < config->depformer_num_layers; i++ ) {
-        auto layer = new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm1=*/ NULL,
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ (int)config->depformer_dim,
-                /*.num_heads=*/ (int)config->depformer_num_heads,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ config->causal,
-                /*.rope_max_period=*/ 0,
-                /*.context=*/ 0,
-                /*.weights_per_step=*/ (int)config->depformer_weights_per_step_schedule.size(),
+    moshi_streaming_transformer_t * lm_depformer = NULL;
+    if ( config->dep_q > 0 ) {
+        lm_depformer = new moshi_streaming_transformer_t;
+        lm_depformer->layers.resize( config->depformer_num_layers );
+        for ( int64_t i = 0; i < config->depformer_num_layers; i++ ) {
+            auto layer = new moshi_streaming_transformer_layer_t{
+                /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
+                /*.norm1=*/ NULL,
+                /*self_attn=*/ new moshi_smha_t{
+                    /*.embed_dim=*/ (int)config->depformer_dim,
+                    /*.num_heads=*/ (int)config->depformer_num_heads,
+                    /*.cross_attention=*/ false,
+                    /*.cache_cross_attention=*/ true,
+                    /*.causal=*/ config->causal,
+                    /*.rope_max_period=*/ 0,
+                    /*.context=*/ 0,
+                    /*.weights_per_step=*/ (int)config->depformer_weights_per_step_schedule.size(),
+                    /*.weights_per_step_schedule=*/ {},
+                    /*.in_projs=*/ {},
+                    /*.out_projs=*/ {}
+                },
+                /*.layer_scale_1=*/ NULL,
+                /*.norm_cross=*/ NULL,
+                /*.cross_attention=*/ NULL,
+                /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
+                /*.norm2=*/ NULL,
                 /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ {},
-                /*.out_projs=*/ {}
-            },
-            /*.layer_scale_1=*/ NULL,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
-            /*.norm2=*/ NULL,
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {},
-            /*.linear1=*/ NULL,
-            /*.linear2=*/ NULL,
-            /*.layer_scale_2=*/ NULL
-        };
-        layer->self_attn->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
-        layer->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
-        for ( size_t j =0; j < config->depformer_weights_per_step_schedule.size(); j++ ) {
-            layer->self_attn->weights_per_step_schedule[j] = config->depformer_weights_per_step_schedule[j];
-            layer->weights_per_step_schedule[j] = config->depformer_weights_per_step_schedule[j];
-        }
-        layer->self_attn->in_projs.resize( depformer_num_weights );
-        layer->self_attn->out_projs.resize( depformer_num_weights );
-        layer->gating.resize( depformer_num_weights );
-        for (int j = 0; j < depformer_num_weights; j++ ) {
-            layer->self_attn->in_projs[j] = new torch_nn_linear_t;
-            layer->self_attn->out_projs[j] = new torch_nn_linear_t;
-            layer->gating[j] = new moshi_activation_gating_t{
-                /*.linear_in=*/new torch_nn_linear_t,
-                /*.linear_out=*/new torch_nn_linear_t
+                /*.gating=*/ {},
+                /*.linear1=*/ NULL,
+                /*.linear2=*/ NULL,
+                /*.layer_scale_2=*/ NULL
             };
-        }
+            layer->self_attn->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
+            layer->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
+            for ( size_t j =0; j < config->depformer_weights_per_step_schedule.size(); j++ ) {
+                layer->self_attn->weights_per_step_schedule[j] = config->depformer_weights_per_step_schedule[j];
+                layer->weights_per_step_schedule[j] = config->depformer_weights_per_step_schedule[j];
+            }
+            layer->self_attn->in_projs.resize( depformer_num_weights );
+            layer->self_attn->out_projs.resize( depformer_num_weights );
+            layer->gating.resize( depformer_num_weights );
+            for (int j = 0; j < depformer_num_weights; j++ ) {
+                layer->self_attn->in_projs[j] = new torch_nn_linear_t;
+                layer->self_attn->out_projs[j] = new torch_nn_linear_t;
+                layer->gating[j] = new moshi_activation_gating_t{
+                    /*.linear_in=*/new torch_nn_linear_t,
+                    /*.linear_out=*/new torch_nn_linear_t
+                };
+            }
 
-        lm_depformer->layers[i] = layer;
+            lm_depformer->layers[i] = layer;
+        }
     }
     auto lmmodel = new moshi_lmmodel_t;
     lmmodel->n_q = config->n_q;
@@ -142,27 +148,35 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( config_t * config ) {
     lmmodel->emb.resize( config->n_q );
     for (int64_t i = 0; i < config->n_q; i++ )
         lmmodel->emb[i] = new moshi_scaled_embedding_t{NULL};
-    lmmodel->text_emb = new moshi_scaled_embedding_demux_t{
-        /*.num_embeddings=*/ (int)config->text_card + 1,
-        /*.out1=*/ new torch_nn_linear_t,
-        /*.out2=*/ new torch_nn_linear_t
-    };
+    lmmodel->demux_second_stream = config->demux_second_stream;
+    if ( config->demux_second_stream ) {
+        lmmodel->text_emb_demux = new moshi_scaled_embedding_demux_t{
+            /*.num_embeddings=*/ (int)config->text_card + 1,
+            /*.out1=*/ new torch_nn_linear_t,
+            /*.out2=*/ new torch_nn_linear_t
+        };
+    } else {
+        lmmodel->text_emb = new moshi_scaled_embedding_t{NULL};
+    }
     lmmodel->text_linear = new torch_nn_linear_t;
     lmmodel->transformer = lm_transformer;
     lmmodel->out_norm = new moshi_rms_norm_t{1e-08};
     lmmodel->depformer_multi_linear = config->depformer_multi_linear;
+    assert( config->depformer_multi_linear );
     lmmodel->depformer_in.resize( depformer_num_weights );
     for ( int64_t i = 0; i < depformer_num_weights; i++ )
         lmmodel->depformer_in[i] = new torch_nn_linear_t;
-    lmmodel->depformer_emb.resize( config->n_q - 1 );
-    for ( int64_t i = 0; i < config->n_q - 1; i++ )
-        lmmodel->depformer_emb[i] = new moshi_scaled_embedding_t{new torch_nn_linear_t};
-    lmmodel->depformer_text_emb = new moshi_scaled_embedding_demux_t{
-        /*.num_embeddings=*/ 8001,
-        /*.out1=*/ new torch_nn_linear_t,
-        /*.out2=*/ new torch_nn_linear_t
-        // NOTE: the original had low_rank for no reason, never gets used in demux
-    };
+    if ( config->dep_q > 0 ) {
+        lmmodel->depformer_emb.resize( config->dep_q - 1 );
+        for ( int64_t i = 0; i < config->n_q - 1; i++ )
+            lmmodel->depformer_emb[i] = new moshi_scaled_embedding_t{new torch_nn_linear_t};
+        lmmodel->depformer_text_emb = new moshi_scaled_embedding_demux_t{
+            /*.num_embeddings=*/ 8001,
+            /*.out1=*/ new torch_nn_linear_t,
+            /*.out2=*/ new torch_nn_linear_t
+            // NOTE: the original had low_rank for no reason, never gets used in demux
+        };
+    }
     lmmodel->depformer = lm_depformer;
     lmmodel->linears.resize( config->dep_q );
     for ( int64_t i = 0; i < config->dep_q; i++ )

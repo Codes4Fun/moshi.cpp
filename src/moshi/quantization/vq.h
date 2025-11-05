@@ -36,7 +36,7 @@ ggml_tensor * moshi_rvq_encode(
     // x = self.input_proj(x)
     x = torch_nn_conv1d( ctx, rvq->input_proj, x );
     //codes = self.vq.encode(x, n_q=n_q)
-    auto codes = moshi_residual_vq_encode( ctx, rvq->vq, x, rvq->n_q ); // don't have n_q!
+    auto codes = moshi_residual_vq_encode( ctx, rvq->vq, x, rvq->n_q );
     // codes = codes.transpose(0, 1)
     // the results from vq encode are [T, B, K]
     codes = ggml_permute( ctx, codes, 0, 2, 1, 3 );

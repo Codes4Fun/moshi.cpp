@@ -9,6 +9,8 @@ struct const_str_t {
 
 const char white_spaces[] = " \t\n\r";
 
+#define const_str(str) const_str_t{str, strlen(str)}
+
 bool chr_of(char c, const_str_t & cs) {
     int ci = 0;
     while (ci < cs.length && c != cs.s[ci])

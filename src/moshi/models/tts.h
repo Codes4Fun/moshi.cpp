@@ -89,6 +89,7 @@ moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend, std::string path = "k
 
     tts->lm = moshi_lmmodel_alloc_default( config );
     tts->weights = WeightLoader::from_safetensor( lm_path.c_str(), tts->scratch_cpu, backend );
+    assert( tts->weights );
     get_weights( tts->weights, "lm.", tts->lm );
     get_weights( tts->weights, &tts->cond );
     {CAPTURE_GROUP("lm");
@@ -96,6 +97,7 @@ moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend, std::string path = "k
 
     tts->mimi = moshi_mimi_alloc_default( config->n_q );
     tts->mimi_weights = WeightLoader::from_safetensor( mimi_path.c_str(), tts->scratch_cpu, backend );
+    assert( tts->mimi_weights );
     get_weights( tts->mimi_weights, "mimi.quantizer.", tts->mimi->quantizer );
     get_weights( tts->mimi_weights, "mimi.upsample.convtr.", tts->mimi->upsample );
     get_weights( tts->mimi_weights, "mimi.decoder_transformer.transformer.", tts->mimi->decoder_transformer );
@@ -133,6 +135,7 @@ bool load_voice(
         ggml_backend * backend ) {
     assert( tts->uses_cross );
     auto loader = WeightLoader::from_safetensor( filename.c_str(), tts->scratch_cpu, backend );
+    assert( loader );
     // TODO: remove prefix "voice"
     ggml_tensor * speaker_wavs;
     loader->fetch( &speaker_wavs, "voice.speaker_wavs" );
@@ -212,7 +215,7 @@ bool load_voice(
     return true;
 }
 
-void get_prefix( 
+int get_prefix( 
         std::string audiopath,
         moshi_ttsmodel_t * tts,
         ggml_backend * backend
@@ -220,7 +223,13 @@ void get_prefix(
     assert( ! tts->uses_cross );
     const int frame_size = 1920;
     std::vector<short> data;
-    auto sample_rate = load_wav( audiopath, data );
+    int sample_rate;
+    try {
+        sample_rate = load_wav( audiopath, data );
+    } catch (const std::exception& e) {
+        std::cerr << "Exception caught: " << e.what() << std::endl;
+        return 0; // unable to load file
+    }
     printf( "sample_rate %d\n", sample_rate );
     std::vector<float> samples;
     if ( sample_rate == 24000 ) {
@@ -243,7 +252,7 @@ void get_prefix(
             samples[s] = (a + b) * 0.5f / 32768.f;
         }
     } else {
-        assert( false ); // other sample rates not yet supported
+        return -1; // unsupported sample rates
     }
 
     const int nframes = (int)samples.size() / frame_size;
@@ -292,6 +301,7 @@ void get_prefix(
         voice->audio_prefixes[nprefixes-3][0] = audio_codes[0];
         audio_codes[0] = lm_ungenerated_token_id;
     }
+    return 1;
 }
 
 
@@ -348,6 +358,7 @@ void moshi_ttsmodel_generate_wav(
 
     ScratchContext ctx( 256, backend );
     std::vector<std::vector<float>> pcms2;
+    int int_text_token;
     std::vector<int> int_audio_tokens( tts->lm->num_audio_codebooks );
     const int final_padding = 4;
     const int delay_steps = tts->delay_steps;
@@ -363,6 +374,7 @@ void moshi_ttsmodel_generate_wav(
             machine, machine_state,
             tts->voice.sum, tts->voice.cross,
             tts->voice.text_prefixes, tts->voice.audio_prefixes,
+            int_text_token,
             int_audio_tokens
         );
         if (audio_tokens) {

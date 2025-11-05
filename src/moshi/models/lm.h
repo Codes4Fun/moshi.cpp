@@ -23,10 +23,10 @@ struct Entry {
 
 class State {
 public:
-    std::deque<Entry> entries;
     int remaining_padding;
     int forced_padding;
     int end_step;
+    std::deque<Entry> entries;
     std::deque<int> queued;
     std::deque<int> lookahead_queued;
 
@@ -66,10 +66,19 @@ public:
 
     State * new_state(std::deque<Entry> &entries) {
         auto state = new State(
-            entries,
-            initial_padding,
-            initial_padding,
-            -1
+            /*remaining_padding=*/initial_padding,
+            /*forced_padding=*/initial_padding,
+            /*end_step*/-1,
+            entries
+        );
+        return state;
+    }
+
+    State * new_state() {
+        auto state = new State(
+            /*remaining_padding=*/initial_padding,
+            /*forced_padding=*/initial_padding,
+            /*end_step*/-1
         );
         return state;
     }
@@ -243,7 +252,9 @@ struct moshi_lmmodel_t {
     int dim;
     std::vector<int> depformer_weights_per_step_schedule;
     own_ptr_vector<moshi_scaled_embedding_t> emb;
-    own_ptr<moshi_scaled_embedding_demux_t> text_emb;
+    bool demux_second_stream;
+    own_ptr<moshi_scaled_embedding_demux_t> text_emb_demux;
+    own_ptr<moshi_scaled_embedding_t> text_emb;
 
     own_ptr<torch_nn_linear_t> text_linear;
     own_ptr<moshi_streaming_transformer_t> transformer;
@@ -266,16 +277,20 @@ struct moshi_lmmodel_t {
 void get_weights( WeightLoader * loader, std::string path, moshi_lmmodel_t * lm ) {
     for ( size_t i = 0; i < lm->depformer_in.size(); i++ )
         get_weights( loader, path + "depformer_in."+std::to_string(i)+".", lm->depformer_in[i] );
-    get_weights( loader, path + "depformer.", lm->depformer );
+    if ( lm->depformer ) {
+        get_weights( loader, path + "depformer.", lm->depformer );
+        get_weights( loader, path + "depformer_text_emb.", lm->depformer_text_emb );
+        for ( size_t i = 0; i < lm->depformer_emb.size(); i++ )
+            get_weights( loader, path + "depformer_emb."+std::to_string(i)+".", lm->depformer_emb[i] );
+    }
     for ( size_t i = 0; i < lm->linears.size(); i++ )
         get_weights( loader, path + "linears."+std::to_string(i)+".", lm->linears[i] );
-    get_weights( loader, path + "depformer_text_emb.", lm->depformer_text_emb );
-    for ( size_t i = 0; i < lm->depformer_emb.size(); i++ )
-        get_weights( loader, path + "depformer_emb."+std::to_string(i)+".", lm->depformer_emb[i] );
-
     for ( size_t i = 0; i < lm->emb.size(); i++ )
         get_weights( loader, path + "emb."+std::to_string(i)+".", lm->emb[i] );
-    get_weights( loader, path + "text_emb.", lm->text_emb );
+    if ( lm->demux_second_stream )
+        get_weights( loader, path + "text_emb.", lm->text_emb_demux );
+    else
+        get_weights( loader, path + "text_emb.", lm->text_emb );
     get_weights( loader, path + "transformer.", lm->transformer);
     get_weights( loader, path + "out_norm.", lm->out_norm);
     get_weights( loader, path + "text_linear.", lm->text_linear);
@@ -292,15 +307,20 @@ moshi_lmmodel_states_t * moshi_lmmodel_states( StateContext * state_ctx,
     auto state = new moshi_lmmodel_states_t;
     state->transformer = moshi_streaming_transformer_state( state_ctx, lm->transformer,
         k_cross );
-    state->depformer = moshi_streaming_transformer_state( state_ctx, lm->depformer,
-        NULL );
+    if ( lm->depformer ) {
+        state->depformer = moshi_streaming_transformer_state( state_ctx, lm->depformer,
+            NULL );
+    } else {
+        state->depformer = NULL;
+    }
     state_ctx->fill(GGML_NE(lm->dim), 0.f, &state->transformer_out );
     return state;
 }
 
 void init( moshi_lmmodel_states_t * state ) {
     init( state->transformer );
-    init( state->depformer );
+    if ( state->depformer )
+        init( state->depformer );
 }
 
 ggml_tensor * moshi_lmmodel_forward_depformer_transform(
@@ -385,7 +405,9 @@ ggml_tensor * moshi_lmmodel_text_token_embed(
     ) {
     //ProfileScope profile(time_text_emb_us);
 
-    auto input = moshi_scaled_embedding_demux( ctx, lm->text_emb,  sequence[0] );
+    auto input = lm->demux_second_stream?
+        moshi_scaled_embedding_demux( ctx, lm->text_emb_demux,  sequence[0] ) :
+        moshi_scaled_embedding( ctx, lm->text_emb,  sequence[0] );
 
     for (int cb_index = 0; cb_index < lm->num_audio_codebooks; cb_index++) {
         auto audio_emb = moshi_scaled_embedding( ctx, lm->emb[cb_index],
@@ -475,10 +497,24 @@ bool moshi_lmgen_step(
         ggml_tensor * condition_cross,
         std::deque<int> & text_prefixes,
         std::deque<std::vector<int>> & audio_prefixes,
+        int & int_text_token,
         std::vector<int> & int_audio_tokens,
         int skip_prefix = 2 // for debugging set to 0
     ) {
     //ProfileScope profile(time_lmgen_step_us);
+    int CT = state->cache.size();
+    int dep_q_1 = lm->dep_q + 1;
+
+    auto needed_tokens = lm->num_codebooks - lm->dep_q - 1;
+    if ( needed_tokens > 0 ) {
+        assert( (int)int_audio_tokens.size() >= needed_tokens );
+        assert( (int)lm->delays.size() >= needed_tokens );
+        int start = dep_q_1;
+        for ( int i = 0; i < needed_tokens; i++ ) {
+            int write_position = (state->offset + lm->delays[start + i]) % CT;
+            state->cache[write_position][start + i] = int_audio_tokens[i];
+        }
+    }
     /*
     it would possibly make sense to "warm up" the cache to avoid the branching
     logic below, and maybe have a more complete graph. may not be a performance
@@ -487,10 +523,11 @@ bool moshi_lmgen_step(
     for -1 and zeroes out the results if present. that means to do that you
     need to modify data. see: scaled_embedding functions
     */
-    int positions = state->offset % state->cache.size();
-    std::vector<int> input(lm->num_codebooks);
-    for (int i = 0; i < lm->num_codebooks; i++) {
-        if (state->offset <= lm->delays[i])
+    int positions = state->offset % CT;
+    std::vector<int> input( lm->num_codebooks );
+    for ( int i = 0; i < lm->num_codebooks; i++ ) {
+        auto is_init = state->offset <= lm->delays[i];
+        if (is_init)
             input[i] = initial_token[i];
         else
             input[i] = state->cache[positions][i];
@@ -507,52 +544,61 @@ bool moshi_lmgen_step(
         scratch_transformer_out, lm_states->transformer_out );
     scratch.build_forward_expand( cpy_transformer_out );
 
+    std::vector<float> _text_logits( ggml_nelements( text_logits ) );
+    scratch.build_forward_expand( text_logits, _text_logits.data() );
+
     // note this does the compute
     auto text_token = moshi_sample_token_int( scratch, text_logits,
         use_sampling, temp_text, top_k_text );
 
     // on_text_hook
-    if ( text_prefixes.size() ) {
-        text_token = text_prefixes.front();
-        text_prefixes.pop_front();
-    } else {
-        text_token = machine->process(state->offset, machine_state, text_token);
+    if ( machine ) {
+        if ( text_prefixes.size() ) {
+            text_token = text_prefixes.front();
+            text_prefixes.pop_front();
+        } else {
+            text_token = machine->process(state->offset, machine_state, text_token);
+        }
     }
 
     int_audio_tokens.resize( lm->num_audio_codebooks );
-    if (!depformer_replace_tokens) {
-        //ProfileScope profile(time_depformer_step_us);
-        moshi_lmmodel_depformer_step(
-            scratch, lm, lm_states,
-            text_token, use_sampling, temp, top_k,
-            int_audio_tokens );
-    } else {
-        for (int i = 0; i < (int)int_audio_tokens.size(); i++) {
-            int_audio_tokens[i] = -1;
+    if ( lm->depformer ) {
+        if (!depformer_replace_tokens) {
+            //ProfileScope profile(time_depformer_step_us);
+            moshi_lmmodel_depformer_step(
+                scratch, lm, lm_states,
+                text_token, use_sampling, temp, top_k,
+                int_audio_tokens );
+        } else {
+            for (int i = 0; i < (int)int_audio_tokens.size(); i++) {
+                int_audio_tokens[i] = -1;
+            }
         }
-    }
-    // on_audio_hook
-    const int delay_steps = lm->delay_steps;
-    for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
-        if (state->offset < lm->delays[q + 1] + delay_steps)
-            int_audio_tokens[q] = -1; // token_ids.zero
-    }
-    if ( audio_prefixes.size() ) {
-        state->skip = skip_prefix;
-        auto audio_codes = audio_prefixes.front();
+        // on_audio_hook
+        const int delay_steps = lm->delay_steps;
         for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
-            if (audio_codes[q] != lm_ungenerated_token_id)
-                int_audio_tokens[q] = audio_codes[q];
+            if (state->offset < lm->delays[q + 1] + delay_steps)
+                int_audio_tokens[q] = -1; // token_ids.zero
         }
-        audio_prefixes.pop_front();
+        if ( audio_prefixes.size() ) {
+            state->skip = skip_prefix;
+            auto audio_codes = audio_prefixes.front();
+            for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
+                if (audio_codes[q] != lm_ungenerated_token_id)
+                    int_audio_tokens[q] = audio_codes[q];
+            }
+            audio_prefixes.pop_front();
+        }
     }
 
     state->offset++;
 
-    int position = state->offset % state->cache.size();
+    int position = state->offset % CT;
     state->cache[position][0] = text_token;
-    for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
-        state->cache[position][q + 1] = int_audio_tokens[q];
+    if ( lm->depformer ) {
+        for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
+            state->cache[position][q + 1] = int_audio_tokens[q];
+        }
     }
     
     if ( state->skip > 0 ) {
@@ -563,8 +609,13 @@ bool moshi_lmgen_step(
     if (state->offset <= lm->max_delay || depformer_replace_tokens)
         return false;
 
-    // TODO: gather using delays from config
-    int_audio_tokens[0] = state->cache[(state->offset - lm->max_delay) % state->cache.size()][1];
+    //int_audio_tokens[0] = state->cache[(state->offset - lm->max_delay) % state->cache.size()][1];
+    int index = (state->offset - lm->max_delay + lm->delays[0]) % CT;
+    int_text_token = state->cache[index][0];
+    for ( int i = 1; i < dep_q_1; i++ ) {
+        index = (state->offset - lm->max_delay + lm->delays[i]) % CT;
+        int_audio_tokens[i - 1] = state->cache[index][i];
+    }
 
     for (auto x : int_audio_tokens) {
         if (x == -1)

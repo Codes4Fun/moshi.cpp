@@ -44,6 +44,8 @@ private:
 public:
     static WeightLoader * from_safetensor( const char * filename, ScratchContext * scratch, ggml_backend * backend = NULL ) {
         auto stf = SafeTensorFile::from_file( filename );
+        if ( ! stf )
+            return NULL;
         return new WeightLoader( stf, scratch, backend );
     }
 
