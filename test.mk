@@ -2,6 +2,7 @@
 HEADERS=\
  src/config.h\
  src/context.h\
+ src/ggml_cap.h\
  src/ggml_wrap.h\
  src/json.h\
  src/loader.h\
