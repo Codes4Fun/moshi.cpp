@@ -266,6 +266,8 @@ struct moshi_lmmodel_t {
     own_ptr<moshi_scaled_embedding_demux_t> depformer_text_emb;
     own_ptr<moshi_streaming_transformer_t> depformer;
 
+    own_ptr_vector<torch_nn_linear_t> extra_heads;
+
     own_ptr_vector<torch_nn_linear_t> linears;
 
     int num_codebooks; // n_q + 1
@@ -283,6 +285,8 @@ void get_weights( WeightLoader * loader, std::string path, moshi_lmmodel_t * lm 
         for ( size_t i = 0; i < lm->depformer_emb.size(); i++ )
             get_weights( loader, path + "depformer_emb."+std::to_string(i)+".", lm->depformer_emb[i] );
     }
+    for ( size_t i = 0; i < lm->extra_heads.size(); i++ )
+        get_weights( loader, path + "extra_heads."+std::to_string(i)+".", lm->extra_heads[i] );
     for ( size_t i = 0; i < lm->linears.size(); i++ )
         get_weights( loader, path + "linears."+std::to_string(i)+".", lm->linears[i] );
     for ( size_t i = 0; i < lm->emb.size(); i++ )
@@ -484,23 +488,50 @@ moshi_lmgen_state_t * moshi_lmgen_state( moshi_lmmodel_t * lm ) {
     return state;
 }
 
+struct moshi_lmgen_t {
+    moshi_lmmodel_t * lm;
+    bool use_sampling;
+    float temp;
+    float temp_text;
+    int top_k;
+    int top_k_text;
+
+    // these are from the TTSModel callback on_text
+    StateMachine * machine;
+    State * machine_state;
+
+    // these are from LMGenState
+    ggml_tensor * condition_sum;
+    ggml_tensor * condition_cross;
+
+    // these are from the TTSModel callbacks on_text, on_audio
+    std::deque<int> * text_prefixes;
+    std::deque<std::vector<int>> * audio_prefixes;
+};
+
 bool moshi_lmgen_step(
         ScratchContext & scratch,
+        moshi_lmgen_t * lmgen,
         moshi_lmgen_state_t * state,
-        moshi_lmmodel_t * lm,
         moshi_lmmodel_states_t * lm_states,
-        bool use_sampling, float temp, float temp_text, int top_k, int top_k_text,
         bool depformer_replace_tokens,
-        StateMachine * machine,
-        State * machine_state,
-        ggml_tensor * condition_sum,
-        ggml_tensor * condition_cross,
-        std::deque<int> & text_prefixes,
-        std::deque<std::vector<int>> & audio_prefixes,
         int & int_text_token,
         std::vector<int> & int_audio_tokens,
+        float * vad = NULL,
         int skip_prefix = 2 // for debugging set to 0
-    ) {
+) {
+    auto lm = lmgen->lm;
+    auto use_sampling = lmgen->use_sampling;
+    auto temp = lmgen->temp;
+    auto temp_text = lmgen->temp_text;
+    auto top_k = lmgen->top_k;
+    auto top_k_text = lmgen->top_k_text;
+    auto machine = lmgen->machine;
+    auto machine_state = lmgen->machine_state;
+    auto condition_sum = lmgen->condition_sum;
+    auto condition_cross = lmgen->condition_cross;
+    auto text_prefixes = lmgen->text_prefixes;
+    auto audio_prefixes = lmgen->audio_prefixes;
     //ProfileScope profile(time_lmgen_step_us);
     int CT = state->cache.size();
     int dep_q_1 = lm->dep_q + 1;
@@ -553,9 +584,9 @@ bool moshi_lmgen_step(
 
     // on_text_hook
     if ( machine ) {
-        if ( text_prefixes.size() ) {
-            text_token = text_prefixes.front();
-            text_prefixes.pop_front();
+        if ( text_prefixes && text_prefixes->size() ) {
+            text_token = text_prefixes->front();
+            text_prefixes->pop_front();
         } else {
             text_token = machine->process(state->offset, machine_state, text_token);
         }
@@ -580,14 +611,14 @@ bool moshi_lmgen_step(
             if (state->offset < lm->delays[q + 1] + delay_steps)
                 int_audio_tokens[q] = -1; // token_ids.zero
         }
-        if ( audio_prefixes.size() ) {
+        if ( audio_prefixes && audio_prefixes->size() ) {
             state->skip = skip_prefix;
-            auto audio_codes = audio_prefixes.front();
+            auto audio_codes = audio_prefixes->front();
             for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
                 if (audio_codes[q] != lm_ungenerated_token_id)
                     int_audio_tokens[q] = audio_codes[q];
             }
-            audio_prefixes.pop_front();
+            audio_prefixes->pop_front();
         }
     }
 
@@ -620,6 +651,18 @@ bool moshi_lmgen_step(
     for (auto x : int_audio_tokens) {
         if (x == -1)
             return false;
+    }
+    
+    if ( vad ) {
+        if ( lm->extra_heads.size() > 2 ) {
+            auto linear = torch_nn_linear( scratch, lm->extra_heads[2], lm_states->transformer_out );
+            auto soft_max = ggml_soft_max( scratch, linear );
+            auto view = ggml_view_1d( scratch, soft_max, 1, 0 );
+            scratch.build_forward_expand( view, vad );
+            scratch.compute();
+        } else {
+            *vad = 0;
+        }
     }
 
     return true;

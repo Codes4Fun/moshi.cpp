@@ -178,6 +178,9 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( config_t * config ) {
         };
     }
     lmmodel->depformer = lm_depformer;
+    lmmodel->extra_heads.resize( config->extra_heads_num_heads );
+    for ( int64_t i = 0; i < config->extra_heads_num_heads; i++ )
+        lmmodel->extra_heads[i] = new torch_nn_linear_t;
     lmmodel->linears.resize( config->dep_q );
     for ( int64_t i = 0; i < config->dep_q; i++ )
         lmmodel->linears[i] = new torch_nn_linear_t;

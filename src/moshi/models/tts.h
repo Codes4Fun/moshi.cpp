@@ -344,6 +344,14 @@ void moshi_ttsmodel_generate_wav(
     );
     auto machine_state = machine->new_state( entries_ );
 
+    auto lmgen = moshi_lmgen_t{
+        tts->lm,
+        true, 0.6, 0.6, 250, 25,
+        machine, machine_state,
+        tts->voice.sum, tts->voice.cross,
+        &tts->voice.text_prefixes, &tts->voice.audio_prefixes
+    };
+
     StateContext state_ctx( backend );
     auto lm_states = moshi_lmmodel_states( &state_ctx, tts->lm, tts->voice.cross );
     auto lmgen_state = moshi_lmgen_state( tts->lm );
@@ -366,14 +374,9 @@ void moshi_ttsmodel_generate_wav(
         bool depformer_replace_tokens = (lmgen_state->offset < delay_steps);
         auto audio_tokens = moshi_lmgen_step(
             ctx,
-            lmgen_state,
-            tts->lm,
+            &lmgen, lmgen_state,
             lm_states,
-            true, 0.6, 0.6, 250, 25,
             depformer_replace_tokens,
-            machine, machine_state,
-            tts->voice.sum, tts->voice.cross,
-            tts->voice.text_prefixes, tts->voice.audio_prefixes,
             int_text_token,
             int_audio_tokens
         );

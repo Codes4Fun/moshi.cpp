@@ -207,6 +207,8 @@ struct config_t {
     // conditioners_t * conditioners; // NULL
     config_fuser_t fuser;
     bool cross_attention; // true || false
+    int64_t extra_heads_num_heads;
+    //int extra_heads_dim; // this will come from weights
     config_tts_t tts_config;
     config_stt_t stt_config;
     config_model_id_t model_id;
@@ -224,6 +226,8 @@ config_t * get_config( const char * filename ) {
     config->moshi_name = "model.safetensors";
     config->stt_config.audio_silence_prefix_seconds = 1.0;
     config->stt_config.audio_delay_seconds = 5.0;
+    config->extra_heads_num_heads = 0;
+    //config->extra_heads_dim = 6;
 
 	auto f = fopen( filename, "rb" );
 	assert( f );
@@ -335,7 +339,9 @@ config_t * get_config( const char * filename ) {
             break;
         case 15:   if (strncmp( key, "cross_attention", 15) == 0 ) {
                 return json_bool_parse( json, offset, config->cross_attention );
-            }
+            }/* else if (strncmp( key, "extra_heads_dim", 15) == 0 ) { // this will come from weights
+                return json_int64_parse( json, offset, config->extra_heads_dim );
+            }*/
             break;
         case 17:   if (strncmp( key, "depformer_pos_emb", 17) == 0 ) {
                 return json_string_parse( json, offset, config->depformer_pos_emb );
@@ -345,6 +351,10 @@ config_t * get_config( const char * filename ) {
                 return json_int64_parse( json, offset, config->depformer_num_heads );
             } else if (strncmp( key, "demux_second_stream", 19) == 0 ) {
                 return json_bool_parse( json, offset, config->demux_second_stream );
+            }
+            break;
+        case 21:   if (strncmp( key, "extra_heads_num_heads", 21) == 0 ) {
+                return json_int64_parse( json, offset, config->extra_heads_num_heads );
             }
             break;
         case 20:   if (strncmp( key, "positional_embedding", 20) == 0 ) {

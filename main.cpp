@@ -195,7 +195,7 @@ int main(int argc, char **argv)
     ggml_time_init();
 
     auto dev_count = ggml_backend_dev_count();
-    printf("available backends:\n");
+    printf("available devices:\n");
     for (size_t i = 0; i < dev_count; i++) {
         auto dev = ggml_backend_dev_get( i );
         auto name = ggml_backend_dev_name( dev );
