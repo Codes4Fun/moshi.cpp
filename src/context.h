@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdexcept>
+
 typedef int64_t NE[GGML_MAX_DIMS]; // number of elements per dimension
 class GGML_NE {
 public:

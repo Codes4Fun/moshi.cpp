@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 // TODO: remove prefix
 std::tuple<std::string, std::string> split_first( const std::string& input, char c ) {
     size_t pos = input.find(c);

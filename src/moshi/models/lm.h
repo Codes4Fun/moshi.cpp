@@ -1,5 +1,7 @@
 #pragma once
 
+#include <deque>
+
 class TokenIds {
 public:
     int card;

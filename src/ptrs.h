@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 // just automatically deletes pointers on destruction
 template<typename T>
 class own_ptr {
