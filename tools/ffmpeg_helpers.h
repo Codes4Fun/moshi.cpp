@@ -4,8 +4,13 @@
 extern "C" {
 #include <libavutil/opt.h>
 #include <libavcodec/avcodec.h>
+//#include <libavutil/opt.h>
+//#include <libavutil/channel_layout.h>
+//#include <libavutil/samplefmt.h>
+//#include <libavutil/timestamp.h>
 #include <libavformat/avformat.h>
 #include <libswresample/swresample.h>
+//#include "../../FFmpeg/libswresample/swresample_internal.h"
 }
 
 // simple functions to check for errors and print a message

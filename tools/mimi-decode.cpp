@@ -5,53 +5,15 @@
 #include <assert.h>
 #include <iostream> // tts
 
-#include "../examples/ffmpeg_helpers.h"
-
-// for src/context.h
-#include <ggml.h>
-#include <ggml-backend.h>
-#include <ggml-cpu.h>
-#ifdef ENABLE_REPLAY
-#include "replay.h"
-#define CAPTURE(...)
-#define CAPTURE_GROUP(...)
-#else
-#ifdef ENABLE_CAPTURE
-#include "src/ggml_cap.h"
-#else
-#define CAPTURE(...)
-#define CAPTURE_GROUP(...)
-#endif
-#endif
-#define ONCE(code) {static bool once=false; if (!once) {{code;}; once=true;}}
-#define ON_NTH(nth, code) {static int count=0; if (count++ == (nth)) {code;}}
-
-#include "../src/ptrs.h"
-#include "../src/safetensor.h"
-#include "../src/config.h"
-#include "../src/context.h"
-#include "../src/wav.h"
-#include "../src/loader.h"
-#include "../src/torch.h"
-#include "../src/moshi/modules/transformer.h"
-#include "../src/moshi/utils/sampling.h"
-#include "../src/moshi/models/lm_utils.h"
-#include "../src/moshi/models/lm.h"
-#include "../src/moshi/quantization/core_vq.h"
-#include "../src/moshi/quantization/vq.h"
-#include "../src/moshi/modules/conv.h"
-#include "../src/moshi/modules/seanet.h"
-#include "../src/moshi/models/compression.h"
-#include "../src/moshi/models/lm_default.h"
-#include "../src/moshi/models/tts.h"
-
-const int frame_size = 1920;
+#include "ffmpeg_helpers.h"
+#include "moshi.h"
 
 static void print_usage(const char * program) {
     fprintf( stderr, "usage: %s [option(s)] input-file output.mimi", program );
     fprintf( stderr, "input-file can also be wav, ogg, flac, and many more formats.\n" );
     fprintf( stderr, "\noption(s):\n" );
     fprintf( stderr, "  -h,       --help          show this help message\n" );
+    fprintf( stderr, "  -m FNAME, --model FNAME   mimi model.\n" );
     fprintf( stderr, "  -l,       --list-devices  list devices and exit.\n" );
     fprintf( stderr, "  -d NAME,  --device NAME   use named device.\n" );
     exit(1);
@@ -76,11 +38,20 @@ int main(int argc, char *argv[]) {
     const char * device = NULL;
     const char * input_filename = NULL;
     const char * output_filename = NULL;
+    const char * model_filename = "tokenizer-e351c8d8-checkpoint125.safetensors";
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "-h" || arg == "--help") {
             print_usage(argv[0]);
+        }
+        if (arg == "-m" || arg == "--model") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires filepath to model\n", argv[i] );
+                exit(1);
+            }
+            model_filename = argv[++i];
+            continue;
         }
         if (arg == "-l" || arg == "--list-devices") {
             list_devices();
@@ -128,60 +99,14 @@ int main(int argc, char *argv[]) {
         exit( 1 );
     }
 
-
-    ggml_backend * backend;
-    if ( device ) {
-        backend = ggml_backend_init_by_name( device, NULL );
-    } else {
-        backend = ggml_backend_init_best();
-    }
-    if ( ! backend ) {
-        fprintf( stderr, "failed to initialize device\n" );
-        exit(1);
-    }
-    auto dev = ggml_backend_get_device( backend );
-    auto dev_name = ggml_backend_dev_name( dev );
-    printf( "using device: \"%s\"\n", dev_name );
-
-    own_ptr<ScratchContext> scratch_cpu;
-    own_ptr<ScratchContext> scratch;
-    own_ptr<moshi_mimi_t> mimi;
-    own_ptr<WeightLoader> mimi_weights;
-
-    scratch_cpu = new ScratchContext( 256 );
-    scratch = new ScratchContext( 256, backend );
-    mimi = moshi_mimi_alloc_default( n_q );
-    mimi_weights = WeightLoader::from_safetensor(
-        "../kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors",
-        scratch_cpu, backend );
-    if ( ! mimi_weights ) {
-        fprintf(stderr, "error: mimi weights not found\n" );
-        exit(1);
-    }
-    get_weights( mimi_weights, "mimi.quantizer.", mimi->quantizer );
-    get_weights( mimi_weights, "mimi.upsample.convtr.", mimi->upsample );
-    get_weights( mimi_weights, "mimi.decoder_transformer.transformer.", mimi->decoder_transformer );
-    get_weights( mimi_weights, "mimi.decoder.", mimi->decoder );
-    if ( mimi->encoder ) {
-        get_weights( mimi_weights, "mimi.downsample.conv.", mimi->downsample );
-        get_weights( mimi_weights, "mimi.encoder_transformer.transformer.", mimi->encoder_transformer );
-        get_weights( mimi_weights, "mimi.encoder.", mimi->encoder );
-    }
-    mimi_weights->load();
-
-    StateContext state_ctx( backend );
-    NE upsample_ne = {1, 512, 1, 1};
-    NE decoder_ne = {2, 512, 1, 1};
-    own_ptr<moshi_mimi_state_t> mimi_states = moshi_mimi_states( &state_ctx, mimi, upsample_ne, decoder_ne );
-    ggml_tensor * device_frame = NULL;
-    state_ctx.new_tensor( GGML_NE(frame_size), GGML_TYPE_F32, &device_frame );
-
-    state_ctx.alloc();
-    state_ctx.init();
-    init( mimi_states );
-
-    ScratchContext &ctx = *scratch;
-
+    // decoder
+    moshi_context_t moshi;
+    moshi_alloc( &moshi, device );
+    mimi_codec_t codec;
+    mimi_alloc( &codec, &moshi, model_filename, n_q );
+    mimi_decode_context_t decoder;
+    mimi_decode_alloc_context( &decoder, &codec );
+    int frame_size = mimi_frame_size( &codec );
 
     AVChannelLayout mono;
     av_channel_layout_default( &mono, 1 );
@@ -202,20 +127,12 @@ int main(int argc, char *argv[]) {
     resampler.set_output( encoder.codec_ctx );
     resampler.init();
 
-    std::vector<int16_t> tokens16(n_q);
-    std::vector<int> tokens(n_q);
-    std::vector<float> pcm(frame_size);
-    while ( fread(tokens16.data(), n_q*2, 1, f ) == 1 ) {
-        for ( int i = 0; i < n_q; i++ )
-            tokens[i] = tokens16[i];
-        mimi_decode(
-            ctx,
-            mimi,
-            mimi_states,
-            tokens,
-            pcm
-        );
-        memcpy( mimi_frame->data[0], pcm.data(), frame_size * 4 );
+    // main loop
+    std::vector<int16_t> tokens(n_q);
+    while ( fread(tokens.data(), n_q*2, 1, f ) == 1 ) {
+        mimi_decode_send( &decoder, tokens.data() );
+        mimi_decode_receive( &decoder, (float*)mimi_frame->data[0] );
+
         auto frame = resampler.frame( mimi_frame );
         while ( frame ) {
             encoder.frame( frame );
