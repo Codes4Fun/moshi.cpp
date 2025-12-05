@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdexcept>
+
 // Include the main FFmpeg library headers
 extern "C" {
 #include <libavutil/opt.h>
@@ -17,8 +19,7 @@ extern "C" {
 static void on_error(int ret, const char *message) { // break on this function
     char errbuf[AV_ERROR_MAX_STRING_SIZE];
     av_make_error_string(errbuf, AV_ERROR_MAX_STRING_SIZE, ret);
-    fprintf(stderr, "Error: %s (%s)\n", message, errbuf);
-    exit(1);
+    throw std::runtime_error( errbuf );
 }
 static void check_error(int ret, const char *message) {
     if (ret < 0) {
@@ -179,7 +180,8 @@ public:
     bool input_set;
     bool output_set;
     bool is_init;
-    //int sample_rate;
+    int in_sample_rate;
+    int frame_size;
     unref_ptr<SwrContext> swr_ctx;
     unref_ptr<AVFrame> swr_frame;
 
@@ -196,14 +198,17 @@ public:
     void set_input(
         int sample_rate,
         AVSampleFormat sample_fmt,
-        AVChannelLayout & ch_layout
+        AVChannelLayout & ch_layout,
+        int frame_size = 0
     ) {
         assert( ! input_set );
         assert( ch_layout.order != AV_CHANNEL_ORDER_UNSPEC ); // needs to be specified
+        in_sample_rate = sample_rate;
         // Set input parameters (from the decoder)
         check_error( av_opt_set_chlayout(swr_ctx, "in_chlayout", &ch_layout, 0), "chlayout" );
         check_error( av_opt_set_int(swr_ctx, "in_sample_rate",    sample_rate,    0), "sample_rate" );
         check_error( av_opt_set_sample_fmt(swr_ctx, "in_sample_fmt", sample_fmt, 0), "sample_fmt" );
+        this->frame_size = frame_size;
         input_set = true;
     }
 
@@ -228,6 +233,10 @@ public:
         check_error( av_opt_set_int(swr_ctx, "out_sample_rate",    sample_rate,    0), "sample_rate" );
         check_error( av_opt_set_sample_fmt(swr_ctx, "out_sample_fmt", sample_fmt, 0), "sample_fmt" );
         // create frame
+        if ( frame_size == 0 ) {
+            assert( input_set );
+            frame_size = this->frame_size;
+        }
         swr_frame->nb_samples     = frame_size;
         swr_frame->ch_layout      = ch_layout;
         swr_frame->format         = sample_fmt;
@@ -271,11 +280,11 @@ public:
 
     AVFrame * flush( bool inject_silence = false ) {
         int nb_samples = swr_get_delay( swr_ctx, swr_frame->sample_rate );
-        if ( nb_samples < 1 )
+        if ( nb_samples < 1 && ! inject_silence )
             return NULL;
         if ( inject_silence ) {
             int nb_silence = swr_frame->nb_samples - nb_samples;
-            swr_inject_silence( swr_ctx, nb_silence );
+            swr_inject_silence( swr_ctx, nb_silence * in_sample_rate / swr_frame->sample_rate );
         }
         check_error( swr_convert_frame(swr_ctx, swr_frame, NULL),
             "Error resampling" );
@@ -354,14 +363,17 @@ public:
             auto format = (AVSampleFormat)formats[nformats];
             printf("%d %s\n", format, av_get_sample_fmt_name(format));
         }
-        printf("sample rates:\n");
-        for (; nrates < 18 && sample_rates[nrates]; nrates++) {
-            printf("%d\n", sample_rates[nrates]);
+        if ( sample_rates ) {
+            printf("sample rates:\n");
+            for (; nrates < 18 && sample_rates[nrates]; nrates++) {
+                printf("%d\n", sample_rates[nrates]);
+            }
         }
-        //for (int i = 0; i < 18 && ch_layouts[i].order != AV_CHANNEL_ORDER_UNSPEC; i++) {
-        for (; nlayouts < 18 && ch_layouts[nlayouts].nb_channels != 0; nlayouts++) {
-            auto & layout = ch_layouts[nlayouts];
-            printf("%d %d %ld\n", layout.order, layout.nb_channels, layout.u.mask);
+        if ( ch_layouts ) {
+            for (; nlayouts < 18 && ch_layouts[nlayouts].nb_channels != 0; nlayouts++) {
+                auto & layout = ch_layouts[nlayouts];
+                printf("%d %d %ld\n", layout.order, layout.nb_channels, layout.u.mask);
+            }
         }
 
         int planar = av_sample_fmt_is_planar( in_sample_fmt );
@@ -378,19 +390,24 @@ public:
 
         codec_ctx->sample_fmt = sample_fmt;
         codec_ctx->sample_rate = in_sample_rate;
-        int layout_found = 0;
-        for (int i = 0; i < nlayouts; i++) {
-            if (ch_layouts[i].nb_channels == in_ch_layout.nb_channels) {
-                layout_found = i;
-                break;
-            } else if (ch_layouts[i].nb_channels < in_ch_layout.nb_channels) {
-                layout_found = i;
+        if ( ch_layouts ) {
+            int layout_found = 0;
+            for (int i = 0; i < nlayouts; i++) {
+                if (ch_layouts[i].nb_channels == in_ch_layout.nb_channels) {
+                    layout_found = i;
+                    break;
+                } else if (ch_layouts[i].nb_channels < in_ch_layout.nb_channels) {
+                    layout_found = i;
+                }
             }
+            av_channel_layout_copy(
+                &codec_ctx->ch_layout,
+                &ch_layouts[layout_found]
+            );
+        } else {
+            // I guess that means it supports any channel layout?
+            av_channel_layout_copy( &codec_ctx->ch_layout, &in_ch_layout );
         }
-        av_channel_layout_copy(
-            &codec_ctx->ch_layout,
-            &ch_layouts[layout_found]
-        );
         codec_ctx->time_base = (AVRational){1, in_sample_rate};
         
         // Some formats require a global header
@@ -533,14 +550,17 @@ public:
             auto format = (AVSampleFormat)formats[nformats];
             printf("%d %s\n", format, av_get_sample_fmt_name(format));
         }
-        printf("sample rates:\n");
-        for (; nrates < 18 && sample_rates[nrates]; nrates++) {
-            printf("%d\n", sample_rates[nrates]);
+        if ( sample_rates ) {
+            printf("sample rates:\n");
+            for (; nrates < 18 && sample_rates[nrates]; nrates++) {
+                printf("%d\n", sample_rates[nrates]);
+            }
         }
-        //for (int i = 0; i < 18 && ch_layouts[i].order != AV_CHANNEL_ORDER_UNSPEC; i++) {
-        for (; nlayouts < 18 && ch_layouts[nlayouts].nb_channels != 0; nlayouts++) {
-            auto & layout = ch_layouts[nlayouts];
-            printf("%d %d %ld\n", layout.order, layout.nb_channels, layout.u.mask);
+        if ( ch_layouts ) {
+            for (; nlayouts < 18 && ch_layouts[nlayouts].nb_channels != 0; nlayouts++) {
+                auto & layout = ch_layouts[nlayouts];
+                printf("%d %d %ld\n", layout.order, layout.nb_channels, layout.u.mask);
+            }
         }
 
         int planar = av_sample_fmt_is_planar( other->sample_fmt );
@@ -558,19 +578,24 @@ public:
 
         pOutCodecContext->sample_fmt = sample_fmt;
         pOutCodecContext->sample_rate = other->sample_rate;
-        int layout_found = 0;
-        for (int i = 0; i < nlayouts; i++) {
-            if (ch_layouts[i].nb_channels == other->ch_layout.nb_channels) {
-                layout_found = i;
-                break;
-            } else if (ch_layouts[i].nb_channels < other->ch_layout.nb_channels) {
-                layout_found = i;
+        if ( ch_layouts ) {
+            int layout_found = 0;
+            for (int i = 0; i < nlayouts; i++) {
+                if (ch_layouts[i].nb_channels == other->ch_layout.nb_channels) {
+                    layout_found = i;
+                    break;
+                } else if (ch_layouts[i].nb_channels < other->ch_layout.nb_channels) {
+                    layout_found = i;
+                }
             }
+            av_channel_layout_copy(
+                &pOutCodecContext->ch_layout,
+                &ch_layouts[layout_found]
+            );
+        } else {
+            // I guess that means it supports any channel layout?
+            av_channel_layout_copy( &pOutCodecContext->ch_layout, &other->ch_layout );
         }
-        av_channel_layout_copy(
-            &pOutCodecContext->ch_layout,
-            &ch_layouts[layout_found]
-        );
         pOutCodecContext->time_base = (AVRational){1, other->sample_rate};
         
         // Some formats require a global header
