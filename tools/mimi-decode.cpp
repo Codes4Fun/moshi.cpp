@@ -9,8 +9,8 @@
 #include "moshi.h"
 
 static void print_usage(const char * program) {
-    fprintf( stderr, "usage: %s [option(s)] input-file output.mimi", program );
-    fprintf( stderr, "input-file can also be wav, ogg, flac, and many more formats.\n" );
+    fprintf( stderr, "usage: %s [option(s)] input.mimi output-file", program );
+    fprintf( stderr, "output-file can also be wav, ogg, flac, and many more formats.\n" );
     fprintf( stderr, "\noption(s):\n" );
     fprintf( stderr, "  -h,       --help          show this help message\n" );
     fprintf( stderr, "  -m FNAME, --model FNAME   mimi model.\n" );
