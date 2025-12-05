@@ -8,84 +8,56 @@ As of right now, it's development is primarily for learning and development. It'
 
 ## Status
 
-Currently does a test of tts (text to speech) (see: `main.cpp`), does not have a cli but in code these can be changed:
-* The phrase can be changed.
-* Voice can be changed.
-* The seed for randomization can be changed.
-* The model can be set to a 1.6b model with different voices, or 0.75b model.
+There are multiple tools that demo different components:
+* mimi-encode - demonstrates using mimi to encode different inputs to a mimi file
+* mimi-decode - demonstrates using mimi to decode and output different files
+* mimi-play - decodes mimi files and playsback through sdl
+* mimi-echo - realtime demo that allows you to hear mimi compression
+* moshi-tts - demonstrates text inputs to audio outputs
+* moshi-stt - demonstrates audio inputs to text outputs
+
+The next steps would be to setup cmake, and then wrap more code in an api and make an official library. After that in no particular order: finish a download tool, integrate llama.cpp to implement an unmute like program, implement a gui.
+
+### Performance / Optimizations
 
 On an RTX 4090 using the ggml-cuda backend, the 1.6b model performs at a rate of 3 seconds of output audio for about 1 second of generation time. So 15 seconds of audio takes 5 seconds to generate.
-
-The 0.75b model, does not yet have an option to trim the prefix so it will not start with the prompt, but also I think there is an error in the transition between the prefix audio and the prompt generated audio. The prefix only supports 24khz or 48khz sample rate wav files at 10 seconds.
 
 Still needs lots of optimization and refactoring. Right now, for example, it rebuilds the graph for each frame.
 
 I left out a lot of unused code, to save time, but also because there was no easy way for me to test everything, as I add more tests, I will port more code and features.
 
+I did create an optimization that does not exist in moshi, and that is instead of generate an attention bias mask each frame, to generate a reusable pattern at initialization, the equivalent of a lookup table. Not only does this reduce the work to just changing an offset in the pattern tensor, but it also allows it to function with vulkan in ggml, which does not support negations that I originally used to replicate what moshi was doing.
+
+## Building
+
+Work in progress.
+
 ## Data / Weights
 
 There are two tts models to choose from, one is 1.6b and the other is 0.75b.
 
-The 1.6b model uses cross attention and requires specially made weights for voices, while the 0.75b model uses wav files to start inference, just as you would a system prompt. This means you can only choose specially made voices for the 1.6b model, while you can in theory use any wav file sample of a voice you want to match.
+The 1.6b tts model uses cross attention and requires specially made weights for voices, while the 0.75b tts model uses wav files to start inference, just as you would a system prompt. This means you can only choose specially made voices for the 1.6b model, while you can in theory use any wav file sample of a voice you want to match. The downside to 0.75b model is it only seems to be able to generate 10 seconds of voice before falling silent.
 
-I recommend downloading the contents of these 3 hugging face repositories:
+The 1b-en_fr-candle stt model has support for vad (voice activity detection), while the larger 2.6b stt model does not.
+
+I recommend downloading the contents of these 5 hugging face repositories:
 * https://huggingface.co/kyutai/tts-1.6b-en_fr/tree/main
 * https://huggingface.co/kyutai/tts-0.75b-en-public/tree/main
 * https://huggingface.co/kyutai/tts-voices/tree/main
+* https://huggingface.co/kyutai/stt-1b-en_fr-candle
+* https://huggingface.co/kyutai/stt-2.6b-en
 
-The files should look like this, with tts-voices having a lot of voice samples and weights.
+But if you want to download a minimum, then I recommend the `tts-1.6b-en_fr`, `stt-1b-en_fr-candle` and `tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors`, those are the defaults.
+
+The result file paths should look like this, with tts-voices having a lot of voice samples and weights.
 ```
 kyutai/tts-1.6b-en_fr/config.json
 kyutai/tts-1.6b-en_fr/dsm_tts_1e68beda@240.safetensors
 kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors
 kyutai/tts-1.6b-en_fr/tokenizer_spm_8k_en_fr_audio.model
-kyutai/tts-0.75b-en-public/config.json
-kyutai/tts-0.75b-en-public/dsm_tts_d6ef30c7%401000.safetensors
-kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors
-kyutai/tts-0.75b-en-public/tokenizer_spm_8k_en_fr_audio.model
-kyutai/tts-voices/*
+kyutai/tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors
+kyutai/stt-1b-en_fr-candle/config.json
+kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors
+kyutai/stt-1b-en_fr-candle/model.safetensors
+kyutai/stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model
 ```
-
-Currently to switch models and voices, you will need to modify `main.cpp` by commenting out the 1.6b code line and uncommenting the 0.75b code line.
-
-## Building and Running
-
-It currently builds on linux. I have not tried any other platform.
-
-It requires SentencePiece and ggml. If you already have these, you need to update test.mk to point towards their locations.
-
-I tested with sentencepiece-0.2.0-Linux.7z, which can be downloaded here:
-* https://github.com/google/sentencepiece/releases/tag/v0.2.0
-and copied libsentencepiece.so.0 to the root directory of this project.
-
-On windows with msys2 I found I needed to build sentencepiece myself.
-
-If you plan to test this just with the cpu, you can build with the current version of ggml:
-* https://github.com/ggml-org/ggml
-
-But if you want to use cuda, you will need my modified version of ggml that adds hardware support for larger ggml_top_k tensors:
-https://github.com/Codes4Fun/ggml/tree/for_moshi
-
-so in the root of this project directory you should end up with these files:
-```
-libggml-base.so
-libggml-cpu.so
-libggml-cuda.so
-libggml.so
-libsentencepiece.so.0
-```
-the libggml-cuda.so is optional if you used my ggml.
-
-and header files in these subdirectories:
-```
-ggml/include/
-sentencepiece-0.2.0-Linux/include/
-```
-
-you can also edit the test.mk file, but from here you can just use this command:
-```
-make -f test.mk run
-```
-that will build and then run the test that will generate a file `audio_test.wav`.
-
-
