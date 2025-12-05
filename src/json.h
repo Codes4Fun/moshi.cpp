@@ -32,6 +32,16 @@ int str_find(const_str_t & s, int offset, char c) {
     return offset;
 }
 
+int str_find(const_str_t & s, int offset, const char * t, int length) {
+    for (int remaining = s.length - offset; remaining >= length; remaining--) {
+        if (strncmp(s.s + offset, t, length) == 0)
+            return offset;
+        offset++;
+    }
+    // unfound
+    return s.length;
+}
+
 int str_find_unescaped(const_str_t & s, int offset, char c) {
     while (offset < s.length) {
         if (s.s[offset] == '\\') {
@@ -62,6 +72,10 @@ int str_find_not_of(const_str_t & s, int offset, const char * cs) {
             break;
     }
     return offset;
+}
+
+int str_find_whitespaces(const_str_t & s, int offset) {
+	return str_find_of(s, offset, white_spaces);
 }
 
 int str_skip_whitespaces(const_str_t & s, int offset) {

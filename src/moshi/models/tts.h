@@ -325,16 +325,16 @@ void moshi_ttsmodel_generate_wav(
     const int initial_padding = 2;
     const int second_stream_ahead = 2; // checkpoint_info.tts_config.get('second_stream_ahead', 0)
     auto machine = new StateMachine(tts->lm->text_card + 1, second_stream_ahead, max_padding, initial_padding);
+    auto machine_state = machine->new_state();
 
     g_last_token_time = ggml_time_ms();
-    std::deque<Entry> entries_;
     TokenIds token_ids;
     float frame_rate = 12.5f; // mimi.frame_rate
     std::vector<std::string> script_ = {text};
     bool multi_speaker = tts->uses_cross;
     int padding_between = 1;
-    script_to_entries(
-        entries_,
+    script_to_state(
+        machine_state,
         tts->sp,
         token_ids,
         frame_rate,
@@ -342,7 +342,6 @@ void moshi_ttsmodel_generate_wav(
         multi_speaker,
         padding_between
     );
-    auto machine_state = machine->new_state( entries_ );
 
     auto lmgen = moshi_lmgen_t{
         tts->lm,

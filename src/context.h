@@ -114,7 +114,12 @@ class SafeTensorFile {
             printf("data is smaller than expected, got %ld needed %ld\n", size, nbytes);
             exit(-1);
         }
-        fseek(f, offset, SEEK_SET);
+#ifdef _WIN32
+        //fseeko64(f, offset, SEEK_SET);
+        assert( _fseeki64(f, offset, SEEK_SET) == 0 );
+#else
+        assert( fseek(f, offset, SEEK_SET) == 0 );
+#endif
         if (backend) {
             std::vector<char*> data(nbytes);
             int64_t r = fread(data.data(), nbytes, 1, f);

@@ -21,6 +21,7 @@ struct Entry {
     std::vector<int> tokens;
     std::string text;
     int padding;
+    int64_t time = 0;
 };
 
 class State {
@@ -44,6 +45,16 @@ public:
         }
         return {};
     }
+    
+    bool is_empty() {
+        if (entries.size())
+            return false;
+        if (queued.size())
+            return false;
+        if (lookahead_queued.size())
+            return false;
+        return true;
+    }
 };
 
 int64_t g_last_token_time;
@@ -54,6 +65,7 @@ public:
     int second_stream_ahead;
     int max_padding;
     int initial_padding;
+    bool logging = false;
 
     StateMachine(
             int text_card,
@@ -84,6 +96,15 @@ public:
         );
         return state;
     }
+    
+    void reset_state( State * state ) {
+        state->remaining_padding = initial_padding;
+        state->forced_padding = initial_padding;
+        state->end_step = -1;
+        state->entries.clear();
+        state->queued.clear();
+        state->lookahead_queued.clear();
+    }
 
     int process(int step, State * state, int token) {
 
@@ -105,9 +126,14 @@ public:
                 auto entry = state->entries.front();
                 state->entries.pop_front();
 
-                auto new_token_time = ggml_time_ms();
-                printf("\"%s\" %.4f\n", entry.text.c_str(), (new_token_time - g_last_token_time) / 1000.f);
-                g_last_token_time = new_token_time;
+                if ( logging ) {
+                    auto new_token_time = ggml_time_ms();
+                    auto last_token_time = g_last_token_time;
+                    if ( entry.time != 0 && entry.time > last_token_time )
+                        last_token_time = entry.time;
+                    printf("\"%s\" %.4f\n", entry.text.c_str(), (new_token_time - last_token_time) / 1000.f);
+                    g_last_token_time = new_token_time;
+                }
 
                 if (entry.tokens.size()) {
                     // We queue the tokens to be fed to the model.
@@ -236,6 +262,72 @@ void script_to_entries(
                 if (padding < 0) padding = 0;
             }
             entries.push_back(Entry(tokens, word, padding));
+        }
+    }
+}
+
+template<class T>
+void script_to_state(
+    State * state,
+    T &tokenizer,
+    TokenIds &token_ids,
+    float frame_rate,
+    std::vector<std::string> script,
+    bool multi_speaker = true,
+    int padding_between = 0
+) {
+    int speaker_tokens[] = {token_ids.main, token_ids.other};
+    int last_speaker = -99;
+    for (size_t idx = 0; idx < script.size(); idx++) {
+        bool first_content = true;
+        auto init_line = script[idx];
+        std::string line;
+        for (size_t i = 0; i < init_line.size(); i++) {
+            char c = init_line[i];
+            switch(c) {
+            //case '’': line += '\''; break;
+            case ':': line += ' '; break;
+            case '(': break;
+            case ')': break;
+            default: line += c;
+            }
+        }
+        // TODO: experiment with break
+        // break is indicated as e.g. <break time="3s"/>
+        // event_re = re.compile(r"(?:<break\s+time=\"([0-9]+(?:.[0-9]*)?)s\"\s*/?>)|(?:\s+)")
+        std::string ws = " \t\r\n";
+        auto cur = line.find_first_not_of(ws);
+        while (cur != std::string::npos) {
+            auto end = line.find_first_of(ws, cur);
+            std::string word;
+            if (end == std::string::npos) {
+                word = line.substr(cur);
+                cur = std::string::npos;
+            } else {
+                auto count = end - cur;
+                word = line.substr(cur, count);
+                cur = line.find_first_not_of(ws, end);
+            }
+            std::vector<int> tokens;
+            tokenizer.Encode(word, &tokens);
+            if (first_content) {
+                int speaker = idx % 2; // len(speaker_tokens)
+                if (multi_speaker && last_speaker != speaker) {
+                    last_speaker = speaker;
+                    std::vector<int> new_tokens(1 + tokens.size());
+                    new_tokens[0] = speaker_tokens[speaker];
+                    for (size_t i = 0; i < tokens.size(); i++)
+                        new_tokens[i+1] = tokens[i];
+                    tokens.swap(new_tokens);
+                }
+                first_content = false;
+            }
+            int padding = 0;
+            if (padding_between > 0) {
+                padding = padding_between + tokens.size() - 1;
+                if (padding < 0) padding = 0;
+            }
+            state->entries.push_back(Entry(tokens, word, padding));
         }
     }
 }
@@ -590,7 +682,17 @@ bool moshi_lmgen_step(
             text_token = text_prefixes->front();
             text_prefixes->pop_front();
         } else {
+            static int prev_in_token = 3;
+            static int prev_text_token = 3;
+            auto in_token = text_token;
+
             text_token = machine->process(state->offset, machine_state, text_token);
+
+            if (machine->logging && ( prev_in_token != in_token || prev_text_token != text_token ) ) {
+                printf( "%d {%d, %d}\n", in_token, text_token % 8001, text_token / 8001 - 1 );
+                prev_in_token = in_token;
+                prev_text_token = text_token;
+            }
         }
     }
 

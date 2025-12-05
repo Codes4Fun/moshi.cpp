@@ -3,7 +3,7 @@
 #define SAMPLE_RATE 24000
 #define FRAME_RATE 12.5
 
-moshi_lmmodel_t * moshi_lmmodel_alloc_default( config_t * config ) {
+moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
     //int64_t dim_feedforward = config->hidden_scale * config->dim;
     
     assert( config->positional_embedding == "rope" );

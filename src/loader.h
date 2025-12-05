@@ -44,6 +44,10 @@ private:
         buffer = NULL;
     }
 public:
+    static WeightLoader * from_safetensor( SafeTensorFile * stf, ScratchContext * scratch, ggml_backend * backend = NULL ) {
+        return new WeightLoader( stf, scratch, backend );
+    }
+
     static WeightLoader * from_safetensor( const char * filename, ScratchContext * scratch, ggml_backend * backend = NULL ) {
         auto stf = SafeTensorFile::from_file( filename );
         if ( ! stf )

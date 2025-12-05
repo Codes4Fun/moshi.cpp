@@ -55,9 +55,6 @@ int moshi_sample_token_int(
         int top_k = 0,
         float top_p = 0.0
     ) {
-    //assert use_sampling, use_sampling
-    //assert temp == 0.6, temp
-    //assert top_k > 0, top_k
     //assert top_p == 0.0, top_p
     /* Given logits of shape [*, Card], returns a LongTensor of shape [*]. */
     // Apply softmax for sampling if temp > 0. Else, do greedy sampling to avoid zero division error.

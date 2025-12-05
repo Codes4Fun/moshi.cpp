@@ -176,7 +176,7 @@ int config_lm_gen_parse( const_str_t & json, int offset, config_lm_gen_t & lm_ge
     return offset;
 }
 
-struct config_t {
+struct moshi_config_t {
     int64_t card; // 2048
     int64_t n_q; // 32 || 16
     int64_t dep_q; // 32 || 16
@@ -220,8 +220,7 @@ struct config_t {
     std::string moshi_name; // "dsm_tts_1e68beda@240.safetensors" || "dsm_tts_d6ef30c7@1000.safetensors"
 };
 
-config_t * get_config( const char * filename ) {
-    auto config = new config_t;
+int moshi_get_config( moshi_config_t * config, const char * filename ) {
     config->demux_second_stream = false;
     config->moshi_name = "model.safetensors";
     config->stt_config.audio_silence_prefix_seconds = 1.0;
@@ -398,9 +397,14 @@ config_t * get_config( const char * filename ) {
         exit(-1);
     }
 
-    return config;
+    return 0;
 }
 
+moshi_config_t * get_config( const char * filename ) {
+    auto config = new moshi_config_t;
+    moshi_get_config( config, filename );
+    return config;
+}
 
 
 
