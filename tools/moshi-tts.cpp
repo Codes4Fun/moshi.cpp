@@ -1,0 +1,791 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <assert.h>
+#include <iostream> // tts
+#include <pthread.h>
+
+#include <limits.h>
+#include <unistd.h>
+#include <libgen.h>
+
+#include "ffmpeg_helpers.h"
+#include "sdl_helper.h"
+#include "moshi.h"
+
+#define DEFAULT_BIG
+
+static void print_usage(const char * program) {
+    fprintf( stderr, "usage: %s [option(s)] \"hello world\"\n", program );
+    fprintf( stderr, "\nplays using sdl if output not specified.\n" );
+    fprintf( stderr, "\noption(s):\n" );
+    fprintf( stderr, "  -h,       --help             show this help message\n" );
+    fprintf( stderr, "  -tm PATH, --tts-model PATH   path to tts model.\n" );
+    fprintf( stderr, "  -l,       --list-devices     list hardware and exit.\n" );
+    fprintf( stderr, "  -d NAME,  --device NAME      use named hardware.\n" );
+    fprintf( stderr, "  -o FNAME, --output FNAME     output to file, can be mimi, wav, mp3, ogg, etc.\n");
+    fprintf( stderr, "  -i FNAME, --input FNAME      input text file.\n");
+    fprintf( stderr, "  -s N,     --seed N           seed value.\n" );
+    fprintf( stderr, "  -v FNAME, --voice FNAME      path to voice model/prefix.\n");
+    fprintf( stderr, "  -t N,     --temperature N    consistency vs creativity, default 0.6\n");
+    exit(1);
+}
+
+static void list_devices() {
+    auto dev_count = ggml_backend_dev_count();
+    fprintf( stderr, "available devices:\n" );
+    for (size_t i = 0; i < dev_count; i++) {
+        auto dev = ggml_backend_dev_get( i );
+        auto name = ggml_backend_dev_name( dev );
+        fprintf( stderr, "  \"%s\"\n", name );
+    }
+    exit(1);
+}
+
+int find_last( const char * s, char c ) {
+    int index = -1;
+    for ( int i = 0; s[i]; ++i ) {
+        if ( s[i] == c )
+            index = i;
+    }
+    return index;
+}
+
+int find_last( const char * s, int size, char c ) {
+    for ( int i = size - 1; i >= 0; --i ) {
+        if ( s[i] == c )
+            return i;
+    }
+    return -1;
+}
+
+int find_last( std::string s, char c ) {
+    return find_last( s.c_str(), s.size(), c );
+}
+
+const char * get_ext( const char * filename ) {
+    int index = find_last( filename, '.' );
+    if ( index < 0 )
+        return NULL;
+    return filename + index;
+}
+
+bool is_abs_or_rel( std::string & path ) {
+    auto size = path.size();
+    if ( size < 1 )
+        return false;
+    if ( path[0] == '/' )
+        return true; // absolute
+    if ( path[0] != '.' )
+        return false;
+    if ( size < 2 ) // "."
+        return true;
+    if ( path[1] == '/' ) // "./"
+        return true;
+    if ( path[1] != '.' )
+        return false;
+    if ( size < 3 ) // ".."
+        return true;
+    return path[2] == '/'; // "../"
+}
+
+std::string get_program_path( const char * argv0 ) {
+    std::string path;
+    int index = find_last( argv0, '/' );
+    if ( index >= 0 ) {
+        path.assign( argv0, index+1 );
+        return path;
+    }
+    // TODO: add support for windows?
+    /*char filepath[4096];
+    auto size = readlink( "/proc/self/exe", filepath, sizeof(filepath) - 1 );
+    assert ( size != -1 && size != sizeof(filepath) - 1 );
+    index = find_last( filepath, size, '/' );
+    assert( index >= 0 );
+    path.assign( filepath, index+1 );
+    return path;*/
+    return "./";
+}
+
+void unref( FILE * f ) {
+    fclose( f );
+}
+
+
+
+pthread_mutex_t stdin_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t stdin_ready = PTHREAD_COND_INITIALIZER;
+std::string stdin_text;
+
+void * stdin_thread_func( void * arg ) {
+    char buffer[1024];
+    while (true) {
+        char * read = fgets( buffer, sizeof(buffer) - 1, stdin );
+        if (! read ) {
+            printf("fgets returned NULL\n");
+            break;
+        }
+        pthread_mutex_lock( &stdin_mutex );
+        stdin_text += buffer;
+        pthread_cond_signal( &stdin_ready );
+        pthread_mutex_unlock( &stdin_mutex );
+    }
+    return NULL;
+}
+
+bool get_text( std::string & text, bool block ) {
+    bool ready = false;
+    pthread_mutex_lock( &stdin_mutex );
+    if ( block ) {
+        while ( ! stdin_text.size() ) {
+            pthread_cond_wait( &stdin_ready, &stdin_mutex );
+        }
+    }
+    if ( stdin_text.size() ) {
+        text = stdin_text;
+        stdin_text = "";
+        ready = true;
+    }
+    pthread_mutex_unlock( &stdin_mutex );
+    return ready;
+}
+
+
+#include <signal.h>
+void signal_handler(int dummy) {
+    printf("exit\n");
+    exit(1);
+}
+
+////////////////
+// MARK: Main
+////////////////
+
+int main(int argc, char *argv[]) {
+    signal(SIGINT, signal_handler);
+
+    const char * device = NULL;
+    const char * input_filename = NULL;
+    //const char * output_filename = "test.mp3";
+    //const char * output_filename = "test.wav";
+    //const char * output_filename = "test.mimi";
+    const char * output_filename = NULL;
+#ifdef DEFAULT_BIG
+    std::string tts_path = "kyutai/tts-1.6b-en_fr";
+#else
+    std::string tts_path = "kyutai/tts-0.75b-en-public";
+#endif
+    std::string voice_filename;
+    int seed = (int)time(NULL);
+    char * text = NULL;
+    float text_temperature = 0.6;
+    float depth_temperature = 0.6;
+
+    //////////////////////
+    // MARK: Parse Args
+    //////////////////////
+
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "-h" || arg == "--help") {
+            print_usage(argv[0]);
+        }
+        if (arg == "-tm" || arg == "--tts_model") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires filepath to model\n", argv[i] );
+                exit(1);
+            }
+            tts_path = argv[++i];
+            continue;
+        }
+        if (arg == "-l" || arg == "--list-devices") {
+            list_devices();
+        }
+        if (arg == "-d" || arg == "--device") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires name of device\n", argv[i] );
+                exit(1);
+            }
+            device = argv[++i];
+            continue;
+        }
+        if (arg == "-o" || arg == "--output") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires filepath to output file\n", argv[i] );
+                exit(1);
+            }
+            output_filename = argv[++i];
+            continue;
+        }
+        if (arg == "-i" || arg == "--input") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires filepath to input file\n", argv[i] );
+                exit(1);
+            }
+            input_filename = argv[++i];
+            continue;
+        }
+        if (arg == "-s" || arg == "--seed") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            seed = std::stoi(argv[++i]);
+            continue;
+        }
+        if (arg == "-t" || arg == "--temperature") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            text_temperature = std::stod(argv[++i]);
+            depth_temperature = text_temperature;
+            continue;
+        }
+        if (arg[0] == '-') {
+            fprintf( stderr, "error: unrecognized option \"%s\"\n", argv[i] );
+            exit(1);
+        }
+        if (!text) {
+            text = argv[i];
+        } else {
+            fprintf( stderr, "error: unexpected extra argument \"%s\"\n", argv[i] );
+            exit(1);
+        }
+    }
+
+    /////////////////////////
+    // MARK: Validate Args
+    /////////////////////////
+
+    const char * ext = NULL;
+    if ( output_filename ) {
+        ext = get_ext( output_filename );
+        if ( ! ext ) {
+            fprintf( stderr, "unable to determine output file type without ext.\n" );
+            print_usage(argv[0]);
+        }
+    }
+
+    std::string program_path = get_program_path(argv[0]);
+
+    auto tts_path_size = tts_path.size();
+    if ( tts_path_size > 1 && tts_path[tts_path_size - 1] != '/' ) {
+        tts_path += "/";
+    }
+
+    std::string tts_config_path = tts_path + "config.json";
+    if ( access( tts_config_path.c_str(), F_OK | R_OK ) != 0 ) {
+        // is path specific (aka absolute or relative)
+        if ( is_abs_or_rel( tts_config_path ) ) {
+            fprintf( stderr, "error: failed to find config.json from path: \"%s\"\n", tts_path.c_str() );
+            exit(1);
+        }
+        std::vector<std::string> paths = {
+            program_path + tts_path,
+            "../" + tts_path,
+            program_path + "../" + tts_path,
+            "kyutai/" + tts_path,
+            program_path + "kyutai/" + tts_path,
+            "../kyutai/" + tts_path,
+            program_path + "../kyutai/" + tts_path,
+        };
+        bool found = false;
+        for ( auto & path : paths ) {
+            tts_config_path = path + "config.json";
+            if ( access( tts_config_path.c_str(), F_OK | R_OK ) == 0 ) {
+                tts_path = path;
+                found = true;
+                break;
+            }
+        }
+        if ( ! found ) {
+            fprintf( stderr, "error: failed to find config.json from path: \"%s\"\n", tts_path.c_str() );
+            exit(1);
+        }
+    }
+
+    if ( input_filename ) {
+        if ( access( input_filename, F_OK | R_OK ) != 0 ) {
+            fprintf( stderr, "error: failed to find or access input file: \"%s\"\n", input_filename );
+            exit(1);
+        }
+    }
+
+    moshi_config_t tts_config;
+    if ( moshi_get_config( &tts_config, tts_config_path.c_str() ) != 0 ) {
+        fprintf( stderr, "error: reading tts config\n");
+        exit(1);
+    }
+
+    // find/check files in the config
+    std::string tokenizer_filepath = tts_path + tts_config.tokenizer_name;
+    if ( access( tokenizer_filepath.c_str(), F_OK | R_OK ) != 0 ) {
+        bool found = false;
+        if ( tts_config.tokenizer_name == "tokenizer_spm_8k_en_fr_audio.model"
+          || tts_config.tokenizer_name == "tokenizer_en_fr_audio_8000.model"
+        ) {
+            // the file is the same for all models, it can be at a shared location
+            std::vector<std::string> paths = {
+                "kyutai/tokenizer_spm_8k_en_fr_audio.model",
+                "../kyutai/tokenizer_spm_8k_en_fr_audio.model",
+                program_path + "kyutai/tokenizer_spm_8k_en_fr_audio.model",
+                program_path + "../kyutai/tokenizer_spm_8k_en_fr_audio.model",
+            };
+            for ( auto & path : paths ) {
+                if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
+                    tokenizer_filepath = path;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if ( ! found ) {
+            fprintf( stderr, "error: missing tokenizer file \"%s\"\n", tokenizer_filepath.c_str() );
+            exit(1);
+        }
+    }
+
+    std::string moshi_filepath = tts_path + tts_config.moshi_name;
+    if ( access( moshi_filepath.c_str(), F_OK | R_OK ) != 0 ) {
+        fprintf( stderr, "error: missing moshi file \"%s\"\n", moshi_filepath.c_str() );
+        exit(1);
+    }
+
+    std::string mimi_filepath = tts_path + tts_config.mimi_name;
+    if ( access( mimi_filepath.c_str(), F_OK | R_OK ) != 0 ) {
+        bool found = false;
+        // the file is the same for all models, it can be at a shared location
+        std::vector<std::string> paths = {
+            "kyutai/mimi-pytorch-e351c8d8@125.safetensors",
+            "../kyutai/mimi-pytorch-e351c8d8@125.safetensors",
+            program_path + "kyutai/mimi-pytorch-e351c8d8@125.safetensors",
+            program_path + "../kyutai/mimi-pytorch-e351c8d8@125.safetensors",
+        };
+        for ( auto & path : paths ) {
+            if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
+                mimi_filepath = path;
+                found = true;
+                break;
+            }
+        }
+
+        if ( ! found ) {
+            fprintf( stderr, "error: missing mimi file \"%s\"\n", mimi_filepath.c_str() );
+            exit(1);
+        }
+    }
+
+    // default voice filepaths
+    if ( ! voice_filename.size() ) {
+        if ( tts_config.cross_attention )
+            voice_filename = "kyutai/tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors";
+        else
+            voice_filename = "kyutai/tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav";
+    } else {
+        auto voice_ext = get_ext( voice_filename.c_str() );
+        if ( ! voice_ext ) {
+            fprintf( stderr, "error: unable to determine voice file type without ext.\n" );
+            print_usage(argv[0]);
+        }
+        if ( tts_config.cross_attention ) {
+            if ( strcmp( ".safetensors", voice_ext ) ) {
+                fprintf( stderr, "error: expected safetensor for voice file.\n" );
+                print_usage(argv[0]);
+            }
+        }
+    }
+
+    if ( access( voice_filename.c_str(), F_OK | R_OK ) != 0 ) {
+        // is path specific (aka absolute or relative)
+        if ( is_abs_or_rel( voice_filename ) ) {
+            fprintf( stderr, "error: failed to find or access voice file: \"%s\"\n", voice_filename.c_str() );
+            exit(1);
+        }
+        std::vector<std::string> paths = {
+            "../" + voice_filename,
+            program_path + voice_filename,
+            program_path + "../" + voice_filename,
+        };
+        bool found = false;
+        for ( auto & path : paths ) {
+            if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
+                voice_filename = path;
+                found = true;
+                break;
+            }
+        }
+        if ( ! found ) {
+            fprintf( stderr, "error: failed to find or access voice file: \"%s\"\n", voice_filename.c_str() );
+            exit(1);
+        }
+    }
+
+    ///////////////////////////////////////////////
+    // MARK: Open / Allocate
+    ///////////////////////////////////////////////
+
+    moshi_context_t moshi;
+    moshi_alloc( &moshi, device );
+
+    // model
+    auto lm = moshi_lmmodel_alloc_default( &tts_config );
+    auto lm_stf = SafeTensorFile::from_file( moshi_filepath.c_str() );
+    if ( ! lm_stf ) {
+        fprintf( stderr, "error: failed to oepn safetensors model file: \"%s\"\n", moshi_filepath.c_str() );
+        exit(1);
+    }
+    auto lm_weights = WeightLoader::from_safetensor( lm_stf, moshi.scratch_cpu, moshi.backend );
+    assert( lm_weights );
+
+    // voice
+    own_ptr<WeightLoader> lm_cond_weights;
+    own_ptr<WeightLoader> voice_weights;
+    own_ptr<Decoder> voice_decoder;
+    std::string voice_ext = get_ext( voice_filename.c_str() );
+    if ( tts_config.cross_attention ) {
+        lm_cond_weights = WeightLoader::from_safetensor( lm_stf, moshi.scratch_cpu, moshi.backend );
+        assert( lm_cond_weights );
+
+        voice_weights = WeightLoader::from_safetensor( voice_filename.c_str(), moshi.scratch_cpu, moshi.backend );
+        if ( ! voice_weights ) {
+            if ( voice_ext != ".safetensors" || voice_ext != ".sft" ) {
+                fprintf( stderr, "error: not a safetensors file: \"%s\"\n", voice_filename.c_str() );
+            } else {
+                fprintf( stderr, "error: failed to open safetensors file: \"%s\"\n", voice_filename.c_str() );
+            }
+            exit(1);
+        }
+    } else {
+        voice_decoder = new Decoder;
+        assert( voice_decoder );
+        try {
+            voice_decoder->init( voice_filename.c_str() );
+        } catch (const std::exception& e) {
+            fprintf( stderr, "error: decoder failed to open: %s\n", voice_filename.c_str() );
+            fprintf( stderr, "error: %s\n", e.what() );
+            exit( 1 );
+        }
+    }
+
+    // output
+    AVChannelLayout mono;
+    av_channel_layout_default( &mono, 1 );
+    unref_ptr<FILE> mimi_file;
+    own_ptr<Encoder> encoder;
+    if ( output_filename ) {
+        if ( strcmp( ext, ".mimi" ) == 0 ) {
+            mimi_file = fopen( output_filename, "wb" );
+            if ( ! mimi_file ) {
+                fprintf( stderr, "error: unable to open file for writing: %s\n", output_filename );
+                exit( 1 );
+            }
+            assert( fwrite( "MIMI", 4, 1, mimi_file ) == 1 );
+            assert( fwrite( &tts_config.n_q, 4, 1, mimi_file ) == 1 );
+        } else {
+            encoder = new Encoder();
+            encoder->init_from( output_filename, 24000, AV_SAMPLE_FMT_FLT, mono );
+        }
+    } else { // sdl
+        if ( SDL_Init(SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0 ) {
+            fprintf( stderr, "error: Could not initialize SDL: %s\n", SDL_GetError() );
+            exit( 1 );
+        }
+    }
+
+    printf("done preparing loads.\n");
+
+    ///////////////////////
+    // MARK: Load / Read
+    ///////////////////////
+
+    // maybe ordered from dependency and quickest to fail
+
+    // tokenizer
+    tokenizer_t tts_tok;
+    tts_tok.sp.Load( tokenizer_filepath );
+    tts_tok.insert_bos = tts_config.cross_attention;
+
+    // codec
+    mimi_codec_t codec;
+    mimi_alloc( &codec, &moshi, mimi_filepath.c_str(), tts_config.n_q );
+    float frame_rate = codec.mimi->frame_rate;
+    int frame_size = mimi_frame_size( &codec );
+    const int delay_steps = tts_config.tts_config.audio_delay * frame_rate;
+    assert( delay_steps == 16 );
+    // we invasively put the on_audio_hook in lm, so we need to copy delay_steps
+    lm->delay_steps = delay_steps;
+
+    // mimi codec dependents
+    unref_ptr<AVFrame> mimi_frame;
+    own_ptr<Resampler> resampler;
+    AudioState state;
+    if ( encoder ) {
+        mimi_frame = av_frame_alloc();
+        mimi_frame->nb_samples     = frame_size;
+        mimi_frame->ch_layout      = mono;
+        mimi_frame->format         = AV_SAMPLE_FMT_FLT;
+        mimi_frame->sample_rate    = 24000;
+        check_error( av_frame_get_buffer( mimi_frame, 0 ),
+            "Error making frame buffer" );
+
+        resampler = new Resampler;
+        resampler->set_input( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
+        resampler->set_output( encoder->codec_ctx );
+        resampler->init();
+    } else if ( ! mimi_file ) { // sdl
+        int sample_rate = 24000;
+        int format = AUDIO_F32;
+        int nb_samples = 1920;
+        int nb_bytes = nb_samples * 4;
+
+        SDL_AudioSpec want, have;
+        SDL_zero(want);
+        want.freq = sample_rate;
+        want.format = format;
+        want.channels = 1;
+        want.samples = nb_samples; // Buffer size
+        want.callback = sdl_audio_callback;
+        want.userdata = &state;
+
+        state.device_id = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+        if (state.device_id == 0) {
+            fprintf(stderr, "Failed to open SDL audio device: %s\n", SDL_GetError());
+            SDL_Quit();
+            return 1;
+        }
+
+        // do we need a resampler?
+        if (have.freq != sample_rate) {
+            fprintf(stderr, "error: sample_rate %d\n", have.freq);
+            return 1;
+        }
+        if (have.format != format) {
+            fprintf(stderr, "error: format %d\n", have.format);
+            return 1;
+        }
+        if (have.channels != 1) {
+            fprintf(stderr, "error: channels %d\n", have.channels);
+            return 1;
+        }
+        if (have.samples != nb_samples) {
+            fprintf(stderr, "error: samples %d\n", have.samples);
+            return 1;
+        }
+
+        sdl_init_frames( state, 3, nb_bytes );
+    }
+
+    // conditions for some models
+    own_ptr<conditioners_t> cond;
+    if ( tts_config.cross_attention ) {
+        cond = new conditioners_t;
+        get_weights( lm_cond_weights, cond );
+        lm_cond_weights->load();
+    }
+
+    // voice
+    own_ptr<voice_t> voice = new voice_t;
+    voice->ctx = NULL;
+    voice->buffer = NULL;
+    voice->sum = NULL;
+    voice->cross = NULL;
+    if ( tts_config.cross_attention ) {
+        ggml_tensor * speaker_wavs;
+        voice_weights->fetch( &speaker_wavs, "voice.speaker_wavs" );
+        voice_weights->load();
+
+        voice_condition( voice, cond, speaker_wavs, &moshi );
+    } else {
+        voice_prefix( voice, voice_decoder, &codec, lm, &moshi );
+    }
+
+    // model
+    get_weights( lm_weights, "lm.", lm );
+    lm_weights->load();
+
+    printf("done loading.\n");
+
+    /////////////////////////////
+    // MARK: Initialize States
+    /////////////////////////////
+
+    srand( seed );
+
+    // state machine between tokenizer output and model input
+    const int max_padding = 8;
+    const int initial_padding = 2;
+    //const int second_stream_ahead = 2; // checkpoint_info.tts_config.get('second_stream_ahead', 0)
+    const int second_stream_ahead = tts_config.tts_config.second_stream_ahead;
+    auto machine = new StateMachine(lm->text_card + 1, second_stream_ahead, max_padding, initial_padding);
+    auto machine_state = machine->new_state();
+
+    // decoder
+    own_ptr<mimi_decode_context_t> decoder;
+    if ( ! mimi_file ) {
+        decoder = new mimi_decode_context_t;
+        mimi_decode_alloc_context( decoder, &codec );
+    }
+
+    // model
+    auto lmgen = moshi_lmgen_t{
+        lm,
+        true, depth_temperature, text_temperature, 250, 25,
+        machine, machine_state,
+        voice->sum, voice->cross,
+        &voice->text_prefixes, &voice->audio_prefixes
+    };
+    StateContext state_ctx( moshi.backend );
+    auto lm_states = moshi_lmmodel_states( &state_ctx, lm, voice->cross );
+    auto lmgen_state = moshi_lmgen_state( lm );
+    state_ctx.alloc();
+    state_ctx.init();
+    init( lm_states );
+
+    ScratchContext ctx( 256, moshi.backend );
+    std::vector<std::vector<float>> pcms2;
+    int int_text_token;
+    std::vector<int> int_audio_tokens( lm->num_audio_codebooks );
+    std::vector<int16_t> int16_audio_tokens( lm->num_audio_codebooks );
+    const int final_padding = 4;
+
+    // read in text file
+    // TODO: load and tokenize it in chunks instead of the whole thing
+    if ( input_filename ) {
+        auto f = fopen( input_filename, "rb" );
+        if ( ! f ) {
+            fprintf( stderr, "error: unable to open \"%s\"\n", input_filename );
+            exit( 1 );
+        }
+        assert( fseek( f, 0, SEEK_END ) == 0 );
+        auto size = ftell( f );
+        assert( size > 0 );
+        assert( fseek( f, 0, SEEK_SET ) == 0 );
+        text = new char[size];
+        assert( text );
+        assert( fread( text, size, 1, f ) == 1 );
+        fclose( f );
+    }
+    if ( text ) {
+        tokenizer_send( &tts_tok, text );
+        tokenizer_send( &tts_tok, "" ); // flush
+    } else {
+        tokenizer_send( &tts_tok, "done loading " );
+    }
+
+    // tokens
+    Entry entry;
+
+    if ( ! output_filename )
+        SDL_PauseAudioDevice(state.device_id, 0);
+
+    pthread_t stdin_thread;
+    if ( ! text ) {
+        if ( pthread_create( &stdin_thread, NULL, stdin_thread_func, NULL ) != 0 ) {
+            perror("error: pthread_create failed");
+            exit(1);
+        }
+    }
+
+    /////////////////////
+    // MARK: Main Loop
+    /////////////////////
+
+    int machine_offset = 0;
+    bool machine_clean = machine_state->is_empty() && ! tts_tok.tail.size();
+    bool machine_active = true;
+    bool active = true;
+    while (active) {
+        if ( ! text ) { // stdin
+            active = true;
+
+            std::string text;
+            //if ( get_text( text, ! machine_active && machine_clean ) ) {
+            if ( get_text( text, machine_clean ) ) {
+            //if ( get_text( text, false ) ) {
+                tokenizer_send( &tts_tok, text.c_str() );
+            }
+
+            machine_active = false;
+        } else {
+            active = false;
+        }
+
+        // add at least 4 tokens for the look ahead
+        for ( int i = 0; i < 4 && tokenizer_receive( &tts_tok, &entry ); ++i ) {
+            if ( machine_clean ) {
+                machine->reset_state( machine_state );
+                //hack_init = true; // sets an 8000 token in lmgen step
+            }
+            machine_state->entries.push_back( entry );
+            active = true;
+            machine_active = true;
+            machine_clean = false;
+        }
+
+        bool depformer_replace_tokens = (lmgen_state->offset < delay_steps);
+        auto audio_tokens = moshi_lmgen_step(
+            ctx,
+            &lmgen, lmgen_state,
+            lm_states,
+            depformer_replace_tokens,
+            int_text_token,
+            int_audio_tokens
+        );
+        if (audio_tokens) {
+            for ( int i = 0; i < int_audio_tokens.size(); ++i )
+                int16_audio_tokens[i] = int_audio_tokens[i];
+
+            if ( mimi_file ) {
+                assert( fwrite( int16_audio_tokens.data(), tts_config.n_q*2, 1, mimi_file ) == 1 );
+            }
+
+            if ( decoder ) {
+                mimi_decode_send( decoder, int16_audio_tokens.data() );
+                if ( encoder ) {
+                    mimi_decode_receive( decoder, (float*)mimi_frame->data[0] );
+                    auto frame = resampler->frame( mimi_frame );
+                    while ( frame ) {
+                        encoder->frame( frame );
+                        frame = resampler->frame();
+                    }
+                } else { // sdl
+                    sdl_frame_t * frame = sdl_get_frame( state );
+                    mimi_decode_receive( decoder, (float*)frame->data );
+                    sdl_send_frame( state, frame );
+                }
+            }
+        }
+        int end_offset = machine_state->end_step + delay_steps + final_padding;
+        machine_offset = lmgen_state->offset;
+        if ( machine_offset < end_offset || machine_state->end_step == -1 ) {
+            active = true;
+            machine_active = true;
+            //machine_offset++;
+        } else if ( machine_state->is_empty() ) {
+            // reset?
+            if ( ! machine_clean ) {
+                printf("reset\n");
+                //machine->reset_state( machine_state );
+                //machine_offset = 0;
+                machine_clean = true;
+            }
+        }
+    }
+
+    ////////////////
+    // MARK: Exit
+    ////////////////
+
+    if ( encoder )
+        encoder->flush();
+
+    if ( ! output_filename ) { // sdl
+        SDL_Delay(1);
+        SDL_CloseAudioDevice(state.device_id);
+        SDL_Quit();
+    }
+
+    return 0;
+}

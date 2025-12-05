@@ -37,6 +37,7 @@
 #include "../src/moshi/models/compression.h"
 #include "../src/moshi/models/lm_default.h"
 #include "../src/moshi/models/tts.h"
+#include "ffmpeg_helpers.h"
 
 struct moshi_context_t {
     ggml_backend * backend;
@@ -196,3 +197,481 @@ void mimi_decode_receive( mimi_decode_context_t * context, float * frame ) {
     );
     memcpy( frame, context->frame.data(), context->frame.size() * 4 );
 }
+
+
+void voice_condition( voice_t * voice,
+        conditioners_t * cond,
+        ggml_tensor * speaker_wavs,
+        moshi_context_t * moshi
+) {
+    ScratchContext & b_voice_ctx = *moshi->scratch.ptr;
+    auto backend = moshi->backend;
+
+    // cfg {'1.0': 0, '1.5': 1, '2.0': 2, '2.5': 3, '3.0': 4, '3.5': 5, '4.0': 6}
+    auto cfg_val = b_voice_ctx.constant( 2 );
+    auto cfg_emb = ggml_get_rows(b_voice_ctx, cond->cfg_embed_weight, cfg_val);
+    auto cfg_cond = ggml_mul_mat(b_voice_ctx, cond->cfg_output_proj_weight, cfg_emb);
+
+    // control {'ok': 0}
+    auto control_val = b_voice_ctx.constant( 0 );
+    auto control_emb = ggml_get_rows(b_voice_ctx, cond->control_embed_weight, control_val);
+    auto control_cond = ggml_mul_mat(b_voice_ctx, cond->control_output_proj_weight, control_emb);
+
+    auto condition_sum = ggml_add(b_voice_ctx, cfg_cond, control_cond);
+
+    // speaker_wavs
+    auto speaker_wavs_a = ggml_cont(b_voice_ctx, ggml_transpose(b_voice_ctx, speaker_wavs));
+    auto speaker_wavs_b = ggml_mul_mat(b_voice_ctx, cond->speaker_wavs_output_proj_weight,
+        speaker_wavs_a);
+    //
+    //auto speaker_wavs_cond = ggml_new_tensor_2d(b_voice_ctx, GGML_TYPE_F32,
+    //    speaker_wavs_b->ne[0], speaker_wavs_b->ne[1] * 5);
+    // fill with learnt padding
+    //speaker_wavs_cond = ggml_scale_inplace(b_voice_ctx, speaker_wavs_cond, 0);
+    //speaker_wavs_cond = ggml_add_inplace(b_voice_ctx, speaker_wavs_cond,
+    //    speaker_wavs_learnt_padding);
+    auto speaker_wavs_cond = ggml_repeat_4d( b_voice_ctx,
+        cond->speaker_wavs_learnt_padding,
+        speaker_wavs_b->ne[0], speaker_wavs_b->ne[1] * 5, 1, 1 );
+    // set first speaker
+    auto speaker_0 = ggml_view_2d(b_voice_ctx, speaker_wavs_cond,
+        speaker_wavs_b->ne[0], speaker_wavs_b->ne[1],
+        speaker_wavs_cond->nb[1], 0);
+    speaker_0 = ggml_cpy(b_voice_ctx, speaker_wavs_b, speaker_0);
+    speaker_wavs_cond = ggml_view_2d(b_voice_ctx, speaker_0,
+        speaker_wavs_cond->ne[0], speaker_wavs_cond->ne[1],
+        speaker_wavs_cond->nb[1], 0);
+
+    float cross_attention_pos_emb_scale = 1;
+    //auto positions = ggml_arange(b_voice_ctx, 0, speaker_wavs_cond->ne[1], 1);
+    auto positions = b_voice_ctx.arange(0, speaker_wavs_cond->ne[1], 1);
+    auto pos_emb = ggml_timestep_embedding(b_voice_ctx, positions, 2048, 10000);
+    auto condition_cross = ggml_add(b_voice_ctx, speaker_wavs_cond, ggml_scale(b_voice_ctx, pos_emb, cross_attention_pos_emb_scale));
+
+    size_t mem_size = 2 * ggml_tensor_overhead();
+    bool no_alloc = true;
+    if (! backend ) {
+        mem_size += ggml_nbytes( condition_sum );
+        mem_size += ggml_nbytes( condition_cross );
+        no_alloc = false;
+    }
+    voice->ctx = ggml_init({
+        /*.mem_size   =*/ mem_size,
+        /*.mem_buffer =*/ NULL,
+        /*.no_alloc   =*/ no_alloc,
+    });
+    voice->sum = ggml_dup_tensor( voice->ctx, condition_sum );
+    voice->cross = ggml_dup_tensor( voice->ctx, condition_cross );
+    ggml_set_name( voice->sum, "sum" );
+    ggml_set_name( voice->cross, "cross" );
+    voice->buffer = ggml_backend_alloc_ctx_tensors( voice->ctx, backend );
+    b_voice_ctx.build_forward_expand( condition_sum, voice->sum );
+    b_voice_ctx.build_forward_expand( condition_cross, voice->cross );
+    ONCE( b_voice_ctx.set_name("voice") );
+    b_voice_ctx.compute();
+}
+
+void voice_prefix( voice_t * voice,
+        Decoder * decoder,
+        mimi_codec_t * codec,
+        moshi_lmmodel_t * lm,
+        moshi_context_t * moshi
+) {
+    const int frame_size = mimi_frame_size( codec );
+    const int n_q = lm->n_q;
+    const int max_delay = lm->max_delay;
+    const int delay_steps = lm->delay_steps;
+
+    mimi_encode_context_t encoder;
+    mimi_encode_alloc_context( &encoder, codec );
+
+    AVChannelLayout mono;
+    av_channel_layout_default( &mono, 1 );
+    Resampler resampler;
+    resampler.set_input( decoder->codec_ctx );
+    resampler.set_output( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
+    resampler.init();
+
+    // prepend delays
+    for ( int i = 0; i < max_delay + delay_steps; i++ ) {
+        voice->audio_prefixes.push_back({});
+        auto & codes = voice->audio_prefixes.back();
+        codes.resize( n_q );
+        for ( int j = 0; j < n_q; j++ ) {
+            codes[j] = lm_ungenerated_token_id;
+        }
+    }
+
+    std::vector<int16_t> tokens(n_q);
+
+    // main loop
+    int frame_count = 0;
+    AVFrame * dec_frame;
+    while ( ( dec_frame = decoder->frame() ) ) {
+        auto frame = resampler.frame( dec_frame );
+        while ( frame ) {
+            mimi_encode_send( &encoder, (float*)frame->data[0] );
+            mimi_encode_receive( &encoder, tokens.data() );
+
+            voice->text_prefixes.push_back( -1 ); // zero_id
+            voice->audio_prefixes.push_back({});
+            std::vector<int> & audio_codes = voice->audio_prefixes.back();
+            audio_codes.resize( n_q );
+            // 16bit to 32bit
+            for ( int i = 0; i < n_q; ++i ) {
+                audio_codes[i] = tokens[i];
+            }
+            // HACK: moving known delayed code from config
+            auto nprefixes = voice->audio_prefixes.size();
+            voice->audio_prefixes[nprefixes-3][0] = audio_codes[0];
+            audio_codes[0] = lm_ungenerated_token_id;
+
+            frame_count++;
+            frame = resampler.frame();
+        }
+    }
+    auto frame = resampler.flush( true ); // inject silence
+    if ( frame ) {
+        mimi_encode_send( &encoder, (float*)frame->data[0] );
+        mimi_encode_receive( &encoder, tokens.data() );
+
+        voice->text_prefixes.push_back( -1 ); // zero_id
+        voice->audio_prefixes.push_back({});
+        std::vector<int> & audio_codes = voice->audio_prefixes.back();
+        audio_codes.resize( n_q );
+        // 16bit to 32bit
+        for ( int i = 0; i < n_q; ++i ) {
+            audio_codes[i] = tokens[i];
+        }
+        // HACK: moving known delayed code from config
+        auto nprefixes = voice->audio_prefixes.size();
+        voice->audio_prefixes[nprefixes-3][0] = audio_codes[0];
+        audio_codes[0] = lm_ungenerated_token_id;
+
+        frame_count++;
+    }
+}
+
+struct tokenizer_t {
+    sentencepiece::SentencePieceProcessor sp;
+    int padding_between = 1;
+    bool insert_bos = true;
+
+    std::string tail;
+
+    enum {
+        FIND_START,
+        FIND_END,
+        CHECK_WORD,
+        TOKENIZE,
+    } state = FIND_START;
+    int offset = 0, start_offset = 0, end_offset = 0;
+
+    int found_break = 0;
+    float time;
+    std::deque<std::string> words;
+};
+
+int tokenizer_tokenize( tokenizer_t * tok, std::string & word, Entry * entry ) {
+    const int text_bos_token = 1;
+
+    std::vector<int> tokens;
+    tok->sp.Encode(word, &tokens);
+    if ( tok->insert_bos ) {
+        tok->insert_bos = false;
+        std::vector<int> new_tokens(1 + tokens.size());
+        new_tokens[0] = text_bos_token;
+        for (size_t i = 0; i < tokens.size(); i++)
+            new_tokens[i+1] = tokens[i];
+        tokens.swap( new_tokens );
+    }
+    int padding = 0;
+    if ( tok->padding_between > 0 ) {
+        padding = tok->padding_between + tokens.size() - 1;
+        if ( padding < 0 )
+            padding = 0;
+    }
+    entry->tokens.swap( tokens );
+    entry->text = word;
+    entry->padding = padding;
+    entry->time = ggml_time_ms();
+    //queue_push( tok->outlet );
+    //entries.push_back( Entry( tokens, word, padding ) );
+    return 0;
+}
+
+int tokenizer_break( tokenizer_t * tok, Entry * entry ) {
+    const int tok_pad_id = 3;
+    const float frame_rate = 12.5f;
+
+    float time = tok->time;
+    if ( time <= 0.f)
+        return 0;
+
+    if ( time > 10.f )
+        time = 10.f;
+    int npad = (int)( time * frame_rate );
+    if ( npad == 0 )
+        npad = 1;
+
+    entry->text = "";
+    while ( tok->words.size() ) {
+        entry->text += tok->words.front() + " ";
+        tok->words.pop_front();
+    }
+    entry->time = ggml_time_ms();
+#ifdef OLD_WAY
+    // tts.py: script_to_entries
+    entry->tokens.reset();
+    entry->padding = npad;
+#else
+    // tts_preprocess.rs: Tokenizer::  preprocess
+    std::vector<int> tokens={ tok_pad_id, npad };
+    entry->tokens.swap( tokens );
+    entry->padding = 0;
+#endif
+    return 1;
+}
+
+int tokenizer_break_time( tokenizer_t * tok ) {
+    std::string & word = tok->words.back();
+    if ( ! word.starts_with( "time=\"" ) )
+        return 0;
+
+    const_str_t s = { word.c_str(), (int)word.size() };
+    int offset = 6;
+
+    //int end_offset = str_find_not_of( s, offset, "0123456789." );
+	char *end;
+	const char *start = s.s + offset;
+	tok->time = (float)strtod(start, &end);
+	offset = (end - start) + offset;
+
+    int remaining = s.length - offset;
+    if ( remaining < 2 || s.s[offset] != 's' || s.s[offset+1] != '"' )
+        return 0;
+    if ( remaining == 3 )
+        return 0; // unexpected extra character
+
+    if ( remaining >= 4 ) {
+        if ( s.s[offset+2] != '/' || s.s[offset+3] != '>' )
+            return 0; // expected "/>"
+        return 3; // completed break
+    }
+    return 2; // incomplete break
+}
+
+int tokenizer_send( tokenizer_t * tok, std::string text ) {
+    if ( text.size() == 0 ) {
+        if ( tok->words.size() ) {
+            tok->state = tokenizer_t::TOKENIZE;
+        }
+        // flush tail
+        if ( tok->tail.size() )
+            tok->tail += " ";
+        return 0;
+    }
+
+    tok->tail += text;
+    return 0;
+}
+
+int tokenizer_receive( tokenizer_t * tok, Entry * entry ) {
+    const_str_t s = { tok->tail.c_str(), (int)tok->tail.size() };
+
+    int found = 0;
+    int & offset = tok->offset;
+    int & start_offset = tok->start_offset;
+    int & end_offset = tok->end_offset;
+
+    while( true ) {
+        switch( tok->state ) {
+        case tokenizer_t::FIND_START:
+            offset = str_skip_whitespaces( s, end_offset );
+            if ( offset == s.length ) { // tail was all white space chars
+                tok->tail = "";
+                offset = 0;
+                end_offset = 0;
+                tok->state = tokenizer_t::FIND_START;
+                return found;
+            }
+            start_offset = offset;
+        case tokenizer_t::FIND_END:
+            end_offset = str_find_whitespaces( s, offset );
+            if ( end_offset == s.length ) { // maybe partial word
+                offset = end_offset - start_offset;
+                if ( start_offset != 0 ) {
+                    tok->tail = tok->tail.substr( start_offset );
+                    start_offset = 0;
+                }
+                tok->state = tokenizer_t::FIND_END;
+                return found;
+            }
+            tok->words.push_back({});
+            tok->words.back().assign( s.s + start_offset, end_offset - start_offset );
+            if ( found ) {
+                tok->state = tokenizer_t::CHECK_WORD;
+                return found + 1;
+            }
+        case tokenizer_t::CHECK_WORD:
+            if ( tok->found_break == 1 ) { // found break, check for time
+                tok->found_break = tokenizer_break_time( tok );
+                if ( tok->found_break == 0 ) { // no time property
+                    tok->state = tokenizer_t::TOKENIZE;
+                    break;
+                }
+                if ( tok->found_break == 2 ) { // need another word
+                    tok->state = tokenizer_t::FIND_START;
+                    break;
+                }
+                tok->state = tokenizer_t::CHECK_WORD;
+                break;
+            } else if ( tok->found_break == 2 ) {
+                if ( tok->words.back().starts_with( "/>" ) ) {
+                    tok->found_break = 3;
+                    tok->state = tokenizer_t::CHECK_WORD;
+                    break;
+                } else {
+                    tok->found_break = 0;
+                    tok->state = tokenizer_t::TOKENIZE;
+                    break;
+                }
+            } else if ( tok->found_break == 3 ) {
+                int front_size = tok->words.front().size();
+                if ( front_size > 6 ) {
+                    // must have token before break
+                    auto word = tok->words.front().substr( 0, front_size - 6 );
+                    tok->words.front() = tok->words.front().substr( front_size - 6 );
+                    tok->words.push_front(word);
+                    tok->state = tokenizer_t::TOKENIZE;
+                    break;
+                }
+                int back_size = tok->words.back().size();
+                int tail = tok->words.back().find( "/>" ) + 2;
+                std::string word;
+                if ( back_size != tail ) {
+                    word = tok->words.back().substr( tail );
+                    tok->words.back() = tok->words.back().substr( 0, tail );
+                }
+                tokenizer_break( tok, entry ); // consumes words
+                tok->found_break = 0;
+                if ( word.size() ) {
+                    tok->words.push_back( word );
+                    tok->state = tokenizer_t::CHECK_WORD;
+                    return 2;
+                }
+                found = 1;
+                tok->state = tokenizer_t::FIND_START;
+                break;
+            } else if ( tok->words.front().ends_with( "<break" ) ) {
+                tok->found_break = 1;
+                tok->state = tokenizer_t::FIND_START;
+                break;
+            }
+        case tokenizer_t::TOKENIZE:
+            tokenizer_tokenize( tok, tok->words.front(), entry );
+            tok->words.pop_front();
+            if ( tok->words.size() ) {
+                tok->state = tokenizer_t::CHECK_WORD;
+                return 2;
+            }
+            found = 1;
+            tok->state = tokenizer_t::FIND_START;
+        }
+    }
+
+    return 0;
+}
+
+/*
+int tokenizer_parse_break( tokenizer * tok ) {
+    while( true ) {
+        switch( tok->break_state ) {
+        case BREAK_NONE:
+        }
+    }
+}
+
+int tokenizer_receive( tokenizer * tok, Entry * entry ) {
+    int length = (int)tok->remaining.size();
+    if ( ! length )
+        return 0;
+
+    const_str_t s = { tok->remaining.c_ptr(), length };
+    int offset = str_skip_whitespaces( s, 0 );
+    if ( offset == length ) {
+        tokenizer->remaining = "";
+        return 0;
+    }
+
+    int end_offset = str_find_white_spaces( s, offset );
+    if ( end_offset == length )
+        return 0;
+
+    // check for potential break without leading space "word<break"
+    if ( end_offset < 6 || strncmp( s.s + end_offset - 6, "<break", 6 ) != 0 ) {
+        std::string word;
+        word.assign( s.s + end_offset, word )
+        std::vector<int> tokens;
+        tokenizer.Encode(word, &tokens);
+    }
+
+    int break_offset = str_find( s, offset, "<break", 6 );
+    if ( break_offset < end_offset && ( end_offset - break_offset ) == 6 ) {
+        end_offset = str_skip_whitespaces( s, end_offset );
+        int remaining = s.length - end_offset;
+        if ( remaining < 6 )
+            return 0;
+        if ( strcmp( s.s + end_offset, "time=\"" ) == 0 ) {
+            int num_start = end_offset + 6;
+            end_offset = str_find_not_of( s, num_start, "0123456789." );
+            if ( end_offset == length )
+                return 0;
+
+        }
+    }
+
+    tokenizer->remaining = std::string(s.s + offset);
+    return 1;
+}
+*/
+
+
+/*struct moshi_lm_t {
+    own_ptr<moshi_lmmodel_t> lm;
+    own_ptr<WeightLoader> weights;
+};
+
+void lm_alloc( moshi_context_t * moshi,  moshi_lm_t * lm, moshi_config_t * config ) {
+    lm->lm = moshi_lmmodel_alloc_default( config );
+    lm->weights = WeightLoader::from_safetensor( lm_path.c_str(), moshi->scratch_cpu, moshi->backend );
+    assert( lm->weights );
+    get_weights( lm->weights, "lm.", lm->lm );
+    get_weights( lm->weights, &lm->cond );
+    {CAPTURE_GROUP("lm");
+    lm->weights->load();}
+}*/
+
+
+
+/*struct moshi_tokenizer_t {
+    sentencepiece::SentencePieceProcessor sp;
+};
+
+void tokenizer_alloc( moshi_tokenizer_t * tokenizer, const char * model_filepath ) {
+    tokenizer->sp.Load( model_filepath );
+}
+
+struct moshi_tokenizer_context_t {
+    moshi_tokenizer_t * tokenizer;
+    std::string remaining;
+    std::deque<Entries> frames;
+};*/
+
+// lm would probably drain as many frames as it can from tokenizer on loop
+// that could also be threaded though
+// in fact it might make sense for the StateMachine/State to be a thread
+// lockable pipe.
+
+
+
