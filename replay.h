@@ -1,8 +1,10 @@
 #pragma once
 
+#include "src/json.h"
 #include <assert.h>
 #include <iostream>
-#include "json.h"
+#include <string>
+#include <map>
 
 /*
 struct 
@@ -218,8 +220,14 @@ int replay_test( std::string filename, ggml_backend * backend = NULL ) {
 		if (it == group_from_id.end())
 			return replay_error("group not found");
 		auto & group_tensors = it->second->tensors;
-		auto it2 = std::find(group_tensors.begin(), group_tensors.end(), tensor->id);
-		if (it2 == group_tensors.end())
+		bool found = false;
+		for (auto id : group_tensors) {
+			if ( id == tensor->id ) {
+				found = true;
+				break;
+			}
+		}
+		if (!found)
 			return replay_error("group to tensor reference error");
 	}
 	for (auto group : groups) {
@@ -256,8 +264,15 @@ int replay_test( std::string filename, ggml_backend * backend = NULL ) {
 	int tested = 0;
 	int skipped = 0;
 	std::vector<std::string> failed;
+    int idx = -1;
 	for (auto tensor : tensors) {
-		if (!tensor->implemented) {
+        idx++;
+		if (!tensor->implemented ||
+            tensor->op_name == "view" ||
+            tensor->op_name == "transpose" ||
+            tensor->op_name == "permute" ||
+            tensor->op_name == "cont"
+        ) {
 			if (tensor->op_name == "new_tensor")
 				continue;
 			printf("  skipping %s\n", tensor->op_name.c_str());
@@ -303,6 +318,9 @@ int replay_test( std::string filename, ggml_backend * backend = NULL ) {
 			src_op[i]->load( f, backend? true : false );
 		}
 		// compute
+        /*if (idx == 189) {
+            printf("break here!\n");
+        }*/
 		ggml_cgraph * gf = ggml_new_graph( ctx );
 		ggml_build_forward_expand(gf, op);
 		if (backend) {
@@ -313,11 +331,11 @@ int replay_test( std::string filename, ggml_backend * backend = NULL ) {
 		// check results
 		if (backend) {
 			if (!tensor->check_results( f, 1e-2, true )) {
-				failed.push_back( tensor->op_name + " " + tensor->id );
+				failed.push_back( tensor->op_name + " " + tensor->id + " " + std::to_string(idx) );
 			}
 		} else {
 			if (!tensor->check_results( f, 1e-5, false )) {
-				failed.push_back( tensor->op_name + " " + tensor->id );
+				failed.push_back( tensor->op_name + " " + tensor->id + " " + std::to_string(idx) );
 			}
 		}
 		tested++;
@@ -373,17 +391,22 @@ int replay_test( std::string filename, ggml_backend * backend = NULL ) {
 }
 
 int replay_test() {
-	ggml_backend * backend = NULL;
+    //auto backend = ggml_backend_init_by_name("Vulkan0", NULL);
+    //auto backend = ggml_backend_init_by_name("CUDA0", NULL);
+    auto backend = ggml_backend_init_by_name("CPU", NULL);
 
-	//backend = ggml_backend_vk_init(0);
-	//backend = ggml_backend_cpu_init();
-	backend = ggml_backend_cuda_init(0);
+	//std::string filename = "capture/voice";
+	//std::string filename = "capture/text";
+	//std::string filename = "capture/text_32";
+	//std::string filename = "capture/depformer_32";
+	//std::string filename = "capture/decode_4";
 
-	//std::string filename = "voice";
-	std::string filename = "text";
-	//std::string filename = "text_32";
-	//std::string filename = "depformer_32";
-	//std::string filename = "decode_4";
+	//std::string filename = "h:/capture/voice";
+	//std::string filename = "h:/capture/text";
+	std::string filename = "h:/capture/text_32";
+	//std::string filename = "h:/capture/depformer_32";
+	//std::string filename = "h:/capture/decode_4";
+
 	int result = replay_test( filename, backend );
 
     if (backend)

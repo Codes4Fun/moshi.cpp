@@ -14,11 +14,22 @@
 #include <ggml-backend.h>
 #include <ggml-cpu.h>
 
-//#include "replay.h"
-//#include "replay_ops.h"
+//#define ENABLE_REPLAY
+//#define ENABLE_CAPTURE
 
+#ifdef ENABLE_REPLAY
+#include "replay.h"
 #define CAPTURE(...)
 #define CAPTURE_GROUP(...)
+#else
+#ifdef ENABLE_CAPTURE
+#include "src/ggml_cap.h"
+#else
+#define CAPTURE(...)
+#define CAPTURE_GROUP(...)
+#endif
+#endif
+
 #define ONCE(code) {static bool once=false; if (!once) {{code;}; once=true;}}
 #define ON_NTH(nth, code) {static int count=0; if (count++ == (nth)) {code;}}
 
@@ -141,10 +152,14 @@ void test_rms_norm2() {
 }
 
 void tts_test() {
+#ifdef ENABLE_CAPTURE
+    auto backend = ggml_backend_init_by_name("CPU", NULL);
+#else
     //auto backend = ggml_backend_init_by_name("Vulkan0", NULL);
     //auto backend = ggml_backend_init_by_name("CUDA0", NULL);
     //auto backend = ggml_backend_init_by_name("CPU", NULL);
     auto backend = ggml_backend_init_best();
+#endif
     assert( backend );
     auto dev = ggml_backend_get_device( backend );
     auto dev_name = ggml_backend_dev_name( dev );
@@ -205,10 +220,11 @@ int main(int argc, char **argv)
     //top_k_cuda_test();
     //test_rms_norm();
 
-    tts_test();
-
-#if 0
+#ifdef ENABLE_REPLAY
     replay_test();
+#else
+    tts_test();
+    //test_top_k();
 #endif
 
 #ifdef PAUSE_ON_EXIT

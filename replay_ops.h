@@ -101,7 +101,10 @@ bool compareFloats(float a, float b, float epsilonBase) {
 	}
 
     // Return true if the difference is within the allowed tolerance
-    return diff <= epsilon;// || (diff < std::numeric_limits<double>::min() && a == b);
+    //return diff <= epsilon;// || (diff < std::numeric_limits<double>::min() && a == b);
+    if ( diff <= epsilon )
+        return true;
+    return false;
 }
 bool compareFloats(float * a, float * b, int n, float epsilonBase) {
 	if (n == 0)
@@ -156,7 +159,12 @@ public:
 		return data.nbytes != 0;
 	}
 	void load(FILE * f, void * data) {
+#ifdef _WIN32
+		//assert( fseeko64(f, this->data.offset, SEEK_SET) == 0 );
+		assert( _fseeki64(f, this->data.offset, SEEK_SET) == 0 );
+#else
 		assert( fseek(f, this->data.offset, SEEK_SET) == 0 );
+#endif
 		assert( fread(data, this->data.nbytes, 1, f) == 1 );
 	}
 	void load(FILE * f, std::vector<uint8_t> & data) {

@@ -1572,7 +1572,7 @@ class GraphDumper {
         if ( tensor->view_src ) {
             assert( tensor->buffer ); // TODO: support non-backend tensors
             auto view_src = tensor->view_src;
-            assert( view_src->type == GGML_TYPE_F32 || view_src->type == GGML_TYPE_I32 );
+            assert( view_src->type == GGML_TYPE_F32 || view_src->type == GGML_TYPE_I32 || view_src->type == GGML_TYPE_BF16 );
             auto src_nbytes = ggml_nbytes( view_src );
             if (buf.size() < src_nbytes) buf.resize(src_nbytes);
             ggml_backend_tensor_get( view_src, buf.data(), 0, src_nbytes );
@@ -1581,7 +1581,10 @@ class GraphDumper {
             //uint8_t * dst = (uint8_t*)values.data();
 
             auto nelements = ggml_nelements( tensor );
-            size_t nbytes = nelements * 4;//ggml_nbytes( tensor ); not correct for views
+            size_t nbe = 4;
+            if ( view_src->type == GGML_TYPE_BF16 || view_src->type == GGML_TYPE_F16 )
+                nbe = 2;
+            size_t nbytes = nelements * nbe;
             out << total_nbytes << ',' << nbytes << ']';
 
             uint8_t * src = buf.data() + tensor->view_offs;
@@ -1601,8 +1604,8 @@ class GraphDumper {
                                 ne2 * nb2 +
                                 ne3 * nb3;
                             //memcpy( dst, src + offset, cpy_nb1 );
-                            assert( fwrite(src + offset, 4, 1, fbin) == 1 );
-                            actual_nbytes += 4;
+                            assert( fwrite(src + offset, nbe, 1, fbin) == 1 );
+                            actual_nbytes += nbe;
                             //dst += cpy_nb1;
                         }
                     }
