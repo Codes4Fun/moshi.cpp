@@ -47,49 +47,6 @@ void unref( SwrContext *swr_ctx ) {
     swr_free( &swr_ctx );
 }
 
-
-template<typename T>
-class unref_ptr {
-public:
-    T * ptr;
-    unref_ptr() {
-        ptr = NULL;
-    }
-    unref_ptr( T * ptr ) {
-        this->ptr = ptr;
-    }
-    void reset() {
-        if ( ! ptr )
-            return;
-        unref( ptr );
-        ptr = NULL;
-    }
-    ~unref_ptr() {
-        reset();
-    }
-    unref_ptr<T> & operator=(T * ptr) {
-        if ( ptr == this->ptr )
-            return *this;
-        reset();
-        this->ptr = ptr;
-        return *this;
-    }
-    T & operator*() {
-        return *ptr;
-    }
-    T * operator->() {
-        return ptr;
-    }
-    operator T *() {
-        return ptr;
-    }
-    operator const T *() const {
-        return ptr;
-    }
-    unref_ptr( const unref_ptr<T>& ) = delete; 
-    unref_ptr<T> & operator=( unref_ptr<T>& ) = delete;
-};
-
 class Decoder {
 public:
     unref_ptr<AVFormatContext> format_ctx;
@@ -698,4 +655,81 @@ public:
     }
 };
 
+void load_voice_prefix(
+    std::deque<int> & text_prefixes,
+    std::deque<std::vector<int>> & audio_prefixes,
+    Decoder * decoder,
+    mimi_codec_t * codec,
+    moshi_lm_t * lm,
+    int n_q
+) {
+    const int lm_ungenerated_token_id = -2;
+    const int frame_size = mimi_frame_size( codec );
+    const int max_delay = moshi_lm_get_max_delay( lm );
+    const int delay_steps = moshi_lm_get_delay_steps( lm );
+
+    unref_ptr<mimi_encode_context_t> encoder = mimi_encode_alloc_context( codec );
+
+    AVChannelLayout mono;
+    av_channel_layout_default( &mono, 1 );
+    Resampler resampler;
+    resampler.set_input( decoder->codec_ctx );
+    resampler.set_output( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
+    resampler.init();
+
+    // prepend delays
+    for ( int i = 0; i < max_delay + delay_steps; i++ ) {
+        audio_prefixes.push_back({});
+        auto & codes = audio_prefixes.back();
+        codes.resize( n_q );
+        for ( int j = 0; j < n_q; j++ ) {
+            codes[j] = lm_ungenerated_token_id;
+        }
+    }
+
+    std::vector<int16_t> tokens(n_q);
+
+    // main loop
+    AVFrame * dec_frame;
+    while ( ( dec_frame = decoder->frame() ) ) {
+        auto frame = resampler.frame( dec_frame );
+        while ( frame ) {
+            mimi_encode_send( encoder, (float*)frame->data[0] );
+            mimi_encode_receive( encoder, tokens.data() );
+
+            text_prefixes.push_back( -1 ); // zero_id
+            audio_prefixes.push_back({});
+            std::vector<int> & audio_codes = audio_prefixes.back();
+            audio_codes.resize( n_q );
+            // 16bit to 32bit
+            for ( int i = 0; i < n_q; ++i ) {
+                audio_codes[i] = tokens[i];
+            }
+            // HACK: moving known delayed code from config
+            auto nprefixes = audio_prefixes.size();
+            audio_prefixes[nprefixes-3][0] = audio_codes[0];
+            audio_codes[0] = lm_ungenerated_token_id;
+
+            frame = resampler.frame();
+        }
+    }
+    auto frame = resampler.flush( true ); // inject silence
+    if ( frame ) {
+        mimi_encode_send( encoder, (float*)frame->data[0] );
+        mimi_encode_receive( encoder, tokens.data() );
+
+        text_prefixes.push_back( -1 ); // zero_id
+        audio_prefixes.push_back({});
+        std::vector<int> & audio_codes = audio_prefixes.back();
+        audio_codes.resize( n_q );
+        // 16bit to 32bit
+        for ( int i = 0; i < n_q; ++i ) {
+            audio_codes[i] = tokens[i];
+        }
+        // HACK: moving known delayed code from config
+        auto nprefixes = audio_prefixes.size();
+        audio_prefixes[nprefixes-3][0] = audio_codes[0];
+        audio_codes[0] = lm_ungenerated_token_id;
+    }
+}
 

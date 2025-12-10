@@ -6,8 +6,11 @@
 #include <iostream> // tts
 #include <pthread.h>
 
+#include <unistd.h>
+
+#include <moshi/moshi.h>
 #include "sdl_helper.h"
-#include "moshi.h"
+#include "util.h"
 
 static void print_usage(const char * program) {
     fprintf( stderr, "usage: %s [option(s)] input.mimi\n", program );
@@ -16,17 +19,6 @@ static void print_usage(const char * program) {
     fprintf( stderr, "  -m FNAME, --model FNAME   mimi model.\n" );
     fprintf( stderr, "  -l,       --list-devices  list devices and exit.\n" );
     fprintf( stderr, "  -d NAME,  --device NAME   use named device.\n" );
-    exit(1);
-}
-
-static void list_devices() {
-    auto dev_count = ggml_backend_dev_count();
-    fprintf( stderr, "available devices:\n" );
-    for (size_t i = 0; i < dev_count; i++) {
-        auto dev = ggml_backend_dev_get( i );
-        auto name = ggml_backend_dev_name( dev );
-        fprintf( stderr, "  \"%s\"\n", name );
-    }
     exit(1);
 }
 
@@ -45,7 +37,7 @@ int main(int argc, char *argv[]) {
 
     const char * device = NULL;
     const char * input_filename = NULL;
-    const char * model_filename = "tokenizer-e351c8d8-checkpoint125.safetensors";
+    std::string model_filename = "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors";
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -82,8 +74,22 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
     }
+
     if (!input_filename) {
         print_usage(argv[0]);
+    }
+
+    if ( access( model_filename.c_str(), F_OK | R_OK ) != 0 ) {
+        if ( is_abs_or_rel( model_filename ) ) {
+            fprintf( stderr, "error: failed to find model from path: \"%s\"\n", model_filename.c_str() );
+            exit(1);
+        }
+        std::string program_path = get_program_path(argv[0]);
+        model_filename = program_path + "/" + model_filename;
+        if ( access( model_filename.c_str(), F_OK | R_OK ) != 0 ) {
+            fprintf( stderr, "error: failed to find model.\n" );
+            exit(1);
+        }
     }
 
     auto f = fopen( input_filename, "rb" );
@@ -105,13 +111,10 @@ int main(int argc, char *argv[]) {
     }
 
     // decoder
-    moshi_context_t moshi;
-    moshi_alloc( &moshi, device );
-    mimi_codec_t codec;
-    mimi_alloc( &codec, &moshi, model_filename, n_q );
-    mimi_decode_context_t decoder;
-    mimi_decode_alloc_context( &decoder, &codec );
-    int frame_size = mimi_frame_size( &codec );
+    unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
+    unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, model_filename.c_str(), n_q );
+    unref_ptr<mimi_decode_context_t> decoder = mimi_decode_alloc_context( codec );
+    int frame_size = mimi_frame_size( codec );
 
     if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0) {
         fprintf(stderr, "Could not initialize SDL: %s\n", SDL_GetError());
@@ -167,8 +170,8 @@ int main(int argc, char *argv[]) {
     std::vector<int16_t> tokens(n_q);
     while ( fread(tokens.data(), n_q*2, 1, f ) == 1 ) {
         sdl_frame_t * frame = sdl_get_frame( state );
-        mimi_decode_send( &decoder, tokens.data() );
-        mimi_decode_receive( &decoder, (float*)frame->data );
+        mimi_decode_send( decoder, tokens.data() );
+        mimi_decode_receive( decoder, (float*)frame->data );
         sdl_send_frame( state, frame );
     }
     fclose( f );

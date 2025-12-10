@@ -56,3 +56,45 @@ public:
         }
     }
 };
+
+template<typename T>
+class unref_ptr {
+public:
+    T * ptr;
+    unref_ptr() {
+        ptr = NULL;
+    }
+    unref_ptr( T * ptr ) {
+        this->ptr = ptr;
+    }
+    void reset() {
+        if ( ! ptr )
+            return;
+        unref( ptr );
+        ptr = NULL;
+    }
+    ~unref_ptr() {
+        reset();
+    }
+    unref_ptr<T> & operator=(T * ptr) {
+        if ( ptr == this->ptr )
+            return *this;
+        reset();
+        this->ptr = ptr;
+        return *this;
+    }
+    T & operator*() {
+        return *ptr;
+    }
+    T * operator->() {
+        return ptr;
+    }
+    operator T *() {
+        return ptr;
+    }
+    operator const T *() const {
+        return ptr;
+    }
+    unref_ptr( const unref_ptr<T>& ) = delete; 
+    unref_ptr<T> & operator=( unref_ptr<T>& ) = delete;
+};

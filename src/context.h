@@ -65,6 +65,16 @@ class SafeTensorFile {
     SafeTensorFile() {}
     ~SafeTensorFile() {fclose(f);}
 
+    int ref_count = 1;
+    void ref() {
+        ref_count++;
+    }
+    void unref() {
+        --ref_count;
+        if (ref_count < 1)
+            delete this;
+    }
+
     static SafeTensorFile * from_file(const char * filename) {
         FILE * f = fopen(filename, "rb");
         if (!f)
@@ -137,6 +147,15 @@ class SafeTensorFile {
         }
     }
 };
+
+SafeTensorFile * ref( SafeTensorFile * stf ) {
+    stf->ref();
+    return stf;
+}
+
+void unref( SafeTensorFile * stf ) {
+    stf->unref();
+}
 
 // single tensor context
 class own_ctx_tensor {

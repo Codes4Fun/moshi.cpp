@@ -1,15 +1,11 @@
-#pragma once
 
-#include <string.h>
+#include <stdint.h>
+#include <stdio.h>
 
-struct const_str_t {
-    const char * s;
-    const int length;
-};
+#include <vector>
+#include <string>
 
-const char white_spaces[] = " \t\n\r";
-
-#define const_str(str) const_str_t{str, strlen(str)}
+#include <moshi/json.h>
 
 bool chr_of(char c, const_str_t & cs) {
     int ci = 0;
@@ -178,110 +174,6 @@ int json_skip_value(const_str_t & json, int offset) {
     return json_error("unknown value type");
 }
 
-template<class T>
-int json_array_parse(const_str_t & json, int offset, T on_item) {
-    offset = str_find_not_of(json, offset, white_spaces);
-	if (offset >= json.length || json.s[offset] != '[')
-		return json_error("expected array");
-    offset = str_find_not_of(json, ++offset, white_spaces);
-	if (offset >= json.length)
-		return json_error("unexpected end of array");
-	if (json.s[offset] == ']')
-		return ++offset;
-	int index = 0;
-	do {
-		offset = on_item(json, offset, index++);
-		if (offset < 0)
-			return offset;
-		offset = str_find_not_of(json, offset, white_spaces);
-		if (offset >= json.length)
-			return json_error("unexpected end of array");
-		if (json.s[offset] != ',')
-			break;
-		offset = str_find_not_of(json, ++offset, white_spaces);
-		if (offset >= json.length)
-			return offset;
-	} while(true);
-	if (json.s[offset] != ']')
-        return json_error("expected tail of array ']'");
-	return ++offset;
-}
-
-template<class T>
-int json_object_parse(const_str_t & json, int offset, T on_item) {
-    offset = str_find_not_of(json, offset, white_spaces);
-	if (offset >= json.length || json.s[offset] != '{')
-		return json_error("expected object");
-    offset = str_find_not_of(json, ++offset, white_spaces);
-	if (offset >= json.length)
-		return json_error("unexpected end of object");
-	if (json.s[offset] == '}')
-		return ++offset;
-    do {
-        if (json.s[offset] != '"')
-            return json_error("expected key");
-        int key_start = ++offset;
-        offset = str_find_unescaped(json, offset, '"');
-        if (offset >= json.length)
-            return json_error("expected end of key");
-        int key_length = offset - key_start;
-
-        offset = str_find_not_of(json, ++offset, white_spaces);
-        if (offset >= json.length || json.s[offset] != ':')
-            return json_error("expected seperator");
-
-        offset = str_skip_whitespaces( json, ++offset );
-        if (offset >= json.length)
-            return json_error("unexpected end of object");
-
-        offset = on_item(json, offset, key_start, key_length);
-		if (offset == -1)
-			return -1;
-
-        offset = str_find_not_of(json, offset, white_spaces);
-		if (offset >= json.length)
-			return json_error("unexpected end of object");
-		if (json.s[offset] != ',')
-			break;
-        offset = str_find_not_of(json, ++offset, white_spaces);
-		if (offset >= json.length)
-			return offset;
-    } while (true);
-    if (json.s[offset] != '}')
-        return json_error("expected tail of object '}'");
-    return ++offset;
-}
-
-/*template<class T>
-int json_object_parse(const_str_t & json, int offset, T on_item) {
-    offset = str_find_not_of(json, offset, white_spaces);
-	if (offset >= json.length || json.s[offset] != '{')
-		return json_error("expected object");
-    do {
-        offset = str_find_not_of(json, ++offset, white_spaces);
-        if (offset >= json.length || json.s[offset] != '"')
-            return json_error("expected key");
-        int key_start = ++offset;
-        offset = str_find_unescaped(json, offset, '"');
-        if (offset >= json.length)
-            return json_error("expected end of key");
-        int key_length = offset - key_start;
-
-        offset = str_find_not_of(json, ++offset, white_spaces);
-        if (offset >= json.length || json.s[offset] != ':')
-            return json_error("expected seperator");
-
-        offset = on_item(json, ++offset, key_start, key_length);
-		if (offset == -1)
-			return -1;
-
-        offset = str_find_not_of(json, offset, white_spaces);
-    } while (offset < json.length && json.s[offset] == ',');
-    if (json.s[offset] != '}')
-        return json_error("expected tail of object '}'");
-    return ++offset;
-}*/
-
 int json_object_key_log(const_str_t & json, int offset, int key_start, int key_length) {
     printf("%.*s\n", key_length, json.s + key_start);
 
@@ -313,51 +205,6 @@ int json_int64_parse(const_str_t & json, int offset, int64_t & value) {
 		return json_error("number not an integer");
 	offset = (end - start) + offset;
 	return offset;
-}
-
-template<class T>
-int json_maybe_get_int64_array(const_str_t & json, int offset, T on_array) {
-    offset = str_find_not_of(json, offset, white_spaces);
-    if (offset >= json.length)
-        return json_error("unexpected end before value");
-
-    if (json.s[offset] != '[')
-        return json_skip_value(json, offset);
-
-    bool skipping = false;
-    std::vector<int64_t> array;
-    do {
-        offset = str_find_not_of(json, ++offset, white_spaces);
-        if (offset >= json.length)
-            return json_error("unexpected end of array");
-
-        char c = json.s[offset];
-        if (!skipping && chr_of(c, "0123456789-")) {
-            const char *start = json.s + offset;
-            char *end;
-            double d = strtod(start, &end);
-            int64_t i = (int64_t)d;
-            if (d == (double)i) {
-                array.push_back(i);
-            } else {
-                skipping = true;
-            }
-            offset = (end - start) + offset;
-        } else {
-            skipping = true;
-
-            offset = json_skip_value(json, ++offset);
-            if (offset == -1)
-                return -1;
-        }
-        offset = str_find_not_of(json, offset, white_spaces);
-    } while (offset < json.length && json.s[offset] == ',');
-    if (json.s[offset] != ']')
-        return json_error("expected tail of array ']'");
-
-    if (!skipping) on_array(array);
-
-    return ++offset;
 }
 
 int json_double_parse(const_str_t & json, int offset, double & value) {
@@ -432,3 +279,5 @@ int json_float_array_parse(const_str_t & json, int offset, std::vector<float> & 
 	});
 	return offset;
 }
+
+

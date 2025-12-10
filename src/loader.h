@@ -26,7 +26,7 @@ class WeightLoader {
         std::string name;
     };
 
-    SafeTensorFile * stf;
+    unref_ptr<SafeTensorFile> stf;
     ScratchContext * scratch;
     ggml_backend * backend;
     ggml_context * ctx;
@@ -45,7 +45,7 @@ private:
     }
 public:
     static WeightLoader * from_safetensor( SafeTensorFile * stf, ScratchContext * scratch, ggml_backend * backend = NULL ) {
-        return new WeightLoader( stf, scratch, backend );
+        return new WeightLoader( ref(stf), scratch, backend );
     }
 
     static WeightLoader * from_safetensor( const char * filename, ScratchContext * scratch, ggml_backend * backend = NULL ) {
@@ -60,7 +60,6 @@ public:
             ggml_backend_buffer_free( buffer );
         if (ctx)
             ggml_free( ctx );
-        delete stf;
     }
 
     safetensor_t * find( std::string name ) {

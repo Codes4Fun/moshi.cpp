@@ -17,13 +17,6 @@ public:
     }
 };
 
-struct Entry {
-    std::vector<int> tokens;
-    std::string text;
-    int padding;
-    int64_t time = 0;
-};
-
 class State {
 public:
     int remaining_padding;

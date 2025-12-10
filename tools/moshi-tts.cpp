@@ -10,9 +10,10 @@
 #include <unistd.h>
 #include <libgen.h>
 
+#include <moshi/moshi.h>
 #include "ffmpeg_helpers.h"
 #include "sdl_helper.h"
-#include "moshi.h"
+#include "util.h"
 
 #define DEFAULT_BIG
 
@@ -31,88 +32,6 @@ static void print_usage(const char * program) {
     fprintf( stderr, "  -t N,     --temperature N    consistency vs creativity, default 0.6\n");
     exit(1);
 }
-
-static void list_devices() {
-    auto dev_count = ggml_backend_dev_count();
-    fprintf( stderr, "available devices:\n" );
-    for (size_t i = 0; i < dev_count; i++) {
-        auto dev = ggml_backend_dev_get( i );
-        auto name = ggml_backend_dev_name( dev );
-        fprintf( stderr, "  \"%s\"\n", name );
-    }
-    exit(1);
-}
-
-int find_last( const char * s, char c ) {
-    int index = -1;
-    for ( int i = 0; s[i]; ++i ) {
-        if ( s[i] == c )
-            index = i;
-    }
-    return index;
-}
-
-int find_last( const char * s, int size, char c ) {
-    for ( int i = size - 1; i >= 0; --i ) {
-        if ( s[i] == c )
-            return i;
-    }
-    return -1;
-}
-
-int find_last( std::string s, char c ) {
-    return find_last( s.c_str(), s.size(), c );
-}
-
-const char * get_ext( const char * filename ) {
-    int index = find_last( filename, '.' );
-    if ( index < 0 )
-        return NULL;
-    return filename + index;
-}
-
-bool is_abs_or_rel( std::string & path ) {
-    auto size = path.size();
-    if ( size < 1 )
-        return false;
-    if ( path[0] == '/' )
-        return true; // absolute
-    if ( path[0] != '.' )
-        return false;
-    if ( size < 2 ) // "."
-        return true;
-    if ( path[1] == '/' ) // "./"
-        return true;
-    if ( path[1] != '.' )
-        return false;
-    if ( size < 3 ) // ".."
-        return true;
-    return path[2] == '/'; // "../"
-}
-
-std::string get_program_path( const char * argv0 ) {
-    std::string path;
-    int index = find_last( argv0, '/' );
-    if ( index >= 0 ) {
-        path.assign( argv0, index+1 );
-        return path;
-    }
-    // TODO: add support for windows?
-    /*char filepath[4096];
-    auto size = readlink( "/proc/self/exe", filepath, sizeof(filepath) - 1 );
-    assert ( size != -1 && size != sizeof(filepath) - 1 );
-    index = find_last( filepath, size, '/' );
-    assert( index >= 0 );
-    path.assign( filepath, index+1 );
-    return path;*/
-    return "./";
-}
-
-void unref( FILE * f ) {
-    fclose( f );
-}
-
-
 
 pthread_mutex_t stdin_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t stdin_ready = PTHREAD_COND_INITIALIZER;
@@ -167,9 +86,6 @@ int main(int argc, char *argv[]) {
 
     const char * device = NULL;
     const char * input_filename = NULL;
-    //const char * output_filename = "test.mp3";
-    //const char * output_filename = "test.wav";
-    //const char * output_filename = "test.mimi";
     const char * output_filename = NULL;
 #ifdef DEFAULT_BIG
     std::string tts_path = "kyutai/tts-1.6b-en_fr";
@@ -197,6 +113,14 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             tts_path = argv[++i];
+            continue;
+        }
+        if (arg == "-v" || arg == "--voice") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires filepath to voice\n", argv[i] );
+                exit(1);
+            }
+            voice_filename = argv[++i];
             continue;
         }
         if (arg == "-l" || arg == "--list-devices") {
@@ -426,30 +350,20 @@ int main(int argc, char *argv[]) {
     // MARK: Open / Allocate
     ///////////////////////////////////////////////
 
-    moshi_context_t moshi;
-    moshi_alloc( &moshi, device );
+    // context
+    unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
 
     // model
-    auto lm = moshi_lmmodel_alloc_default( &tts_config );
-    auto lm_stf = SafeTensorFile::from_file( moshi_filepath.c_str() );
-    if ( ! lm_stf ) {
-        fprintf( stderr, "error: failed to oepn safetensors model file: \"%s\"\n", moshi_filepath.c_str() );
-        exit(1);
-    }
-    auto lm_weights = WeightLoader::from_safetensor( lm_stf, moshi.scratch_cpu, moshi.backend );
-    assert( lm_weights );
+    unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &tts_config, moshi_filepath.c_str() );
+
+    // generator
+    unref_ptr<moshi_lm_gen_t> gen = moshi_lm_generator( lm );
 
     // voice
-    own_ptr<WeightLoader> lm_cond_weights;
-    own_ptr<WeightLoader> voice_weights;
     own_ptr<Decoder> voice_decoder;
     std::string voice_ext = get_ext( voice_filename.c_str() );
     if ( tts_config.cross_attention ) {
-        lm_cond_weights = WeightLoader::from_safetensor( lm_stf, moshi.scratch_cpu, moshi.backend );
-        assert( lm_cond_weights );
-
-        voice_weights = WeightLoader::from_safetensor( voice_filename.c_str(), moshi.scratch_cpu, moshi.backend );
-        if ( ! voice_weights ) {
+        if ( moshi_lm_set_voice_condition( moshi, gen, voice_filename.c_str() ) != 0 ) {
             if ( voice_ext != ".safetensors" || voice_ext != ".sft" ) {
                 fprintf( stderr, "error: not a safetensors file: \"%s\"\n", voice_filename.c_str() );
             } else {
@@ -508,14 +422,14 @@ int main(int argc, char *argv[]) {
     tts_tok.insert_bos = tts_config.cross_attention;
 
     // codec
-    mimi_codec_t codec;
-    mimi_alloc( &codec, &moshi, mimi_filepath.c_str(), tts_config.n_q );
-    float frame_rate = codec.mimi->frame_rate;
-    int frame_size = mimi_frame_size( &codec );
+    unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), tts_config.n_q );
+    float frame_rate = mimi_frame_rate( codec );
+    int frame_size = mimi_frame_size( codec );
+
     const int delay_steps = tts_config.tts_config.audio_delay * frame_rate;
     assert( delay_steps == 16 );
     // we invasively put the on_audio_hook in lm, so we need to copy delay_steps
-    lm->delay_steps = delay_steps;
+    moshi_lm_set_delay_steps( lm, delay_steps );
 
     // mimi codec dependents
     unref_ptr<AVFrame> mimi_frame;
@@ -577,33 +491,25 @@ int main(int argc, char *argv[]) {
         sdl_init_frames( state, 3, nb_bytes );
     }
 
-    // conditions for some models
-    own_ptr<conditioners_t> cond;
-    if ( tts_config.cross_attention ) {
-        cond = new conditioners_t;
-        get_weights( lm_cond_weights, cond );
-        lm_cond_weights->load();
-    }
-
-    // voice
-    own_ptr<voice_t> voice = new voice_t;
-    voice->ctx = NULL;
-    voice->buffer = NULL;
-    voice->sum = NULL;
-    voice->cross = NULL;
-    if ( tts_config.cross_attention ) {
-        ggml_tensor * speaker_wavs;
-        voice_weights->fetch( &speaker_wavs, "voice.speaker_wavs" );
-        voice_weights->load();
-
-        voice_condition( voice, cond, speaker_wavs, &moshi );
-    } else {
-        voice_prefix( voice, voice_decoder, &codec, lm, &moshi );
-    }
-
     // model
-    get_weights( lm_weights, "lm.", lm );
-    lm_weights->load();
+    moshi_lm_load( lm );
+
+    // conditions for some models
+    if ( tts_config.cross_attention ) {
+        moshi_lm_load_voice_condition( moshi, gen );
+    } else {
+        std::deque<int> text_prefixes;
+        std::deque<std::vector<int>> audio_prefixes;
+        load_voice_prefix(
+            text_prefixes,
+            audio_prefixes,
+            voice_decoder,
+            codec,
+            lm,
+            tts_config.n_q
+        );
+        moshi_lm_voice_prefix( gen, text_prefixes, audio_prefixes );
+    }
 
     printf("done loading.\n");
 
@@ -612,43 +518,18 @@ int main(int argc, char *argv[]) {
     /////////////////////////////
 
     srand( seed );
-
-    // state machine between tokenizer output and model input
-    const int max_padding = 8;
-    const int initial_padding = 2;
-    //const int second_stream_ahead = 2; // checkpoint_info.tts_config.get('second_stream_ahead', 0)
-    const int second_stream_ahead = tts_config.tts_config.second_stream_ahead;
-    auto machine = new StateMachine(lm->text_card + 1, second_stream_ahead, max_padding, initial_padding);
-    auto machine_state = machine->new_state();
+    printf( "seed: %d\n", seed );
 
     // decoder
-    own_ptr<mimi_decode_context_t> decoder;
+    unref_ptr<mimi_decode_context_t> decoder;
     if ( ! mimi_file ) {
-        decoder = new mimi_decode_context_t;
-        mimi_decode_alloc_context( decoder, &codec );
+        decoder = mimi_decode_alloc_context( codec );
     }
 
     // model
-    auto lmgen = moshi_lmgen_t{
-        lm,
-        true, depth_temperature, text_temperature, 250, 25,
-        machine, machine_state,
-        voice->sum, voice->cross,
-        &voice->text_prefixes, &voice->audio_prefixes
-    };
-    StateContext state_ctx( moshi.backend );
-    auto lm_states = moshi_lmmodel_states( &state_ctx, lm, voice->cross );
-    auto lmgen_state = moshi_lmgen_state( lm );
-    state_ctx.alloc();
-    state_ctx.init();
-    init( lm_states );
-
-    ScratchContext ctx( 256, moshi.backend );
-    std::vector<std::vector<float>> pcms2;
+    moshi_lm_start( moshi, gen, depth_temperature, text_temperature );
     int int_text_token;
-    std::vector<int> int_audio_tokens( lm->num_audio_codebooks );
-    std::vector<int16_t> int16_audio_tokens( lm->num_audio_codebooks );
-    const int final_padding = 4;
+    std::vector<int16_t> int16_audio_tokens;
 
     // read in text file
     // TODO: load and tokenize it in chunks instead of the whole thing
@@ -692,22 +573,17 @@ int main(int argc, char *argv[]) {
     // MARK: Main Loop
     /////////////////////
 
-    int machine_offset = 0;
-    bool machine_clean = machine_state->is_empty() && ! tts_tok.tail.size();
-    bool machine_active = true;
+    bool machine_clean = moshi_lm_is_empty( gen ) && ! tts_tok.tail.size();
     bool active = true;
     while (active) {
         if ( ! text ) { // stdin
             active = true;
 
             std::string text;
-            //if ( get_text( text, ! machine_active && machine_clean ) ) {
             if ( get_text( text, machine_clean ) ) {
             //if ( get_text( text, false ) ) {
                 tokenizer_send( &tts_tok, text.c_str() );
             }
-
-            machine_active = false;
         } else {
             active = false;
         }
@@ -715,28 +591,14 @@ int main(int argc, char *argv[]) {
         // add at least 4 tokens for the look ahead
         for ( int i = 0; i < 4 && tokenizer_receive( &tts_tok, &entry ); ++i ) {
             if ( machine_clean ) {
-                machine->reset_state( machine_state );
-                //hack_init = true; // sets an 8000 token in lmgen step
+                moshi_lm_machine_reset( gen );
             }
-            machine_state->entries.push_back( entry );
+            moshi_lm_send( gen, &entry );
             active = true;
-            machine_active = true;
             machine_clean = false;
         }
 
-        bool depformer_replace_tokens = (lmgen_state->offset < delay_steps);
-        auto audio_tokens = moshi_lmgen_step(
-            ctx,
-            &lmgen, lmgen_state,
-            lm_states,
-            depformer_replace_tokens,
-            int_text_token,
-            int_audio_tokens
-        );
-        if (audio_tokens) {
-            for ( int i = 0; i < int_audio_tokens.size(); ++i )
-                int16_audio_tokens[i] = int_audio_tokens[i];
-
+        if ( moshi_lm_receive( gen, int_text_token, int16_audio_tokens ) ) {
             if ( mimi_file ) {
                 assert( fwrite( int16_audio_tokens.data(), tts_config.n_q*2, 1, mimi_file ) == 1 );
             }
@@ -757,18 +619,12 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        int end_offset = machine_state->end_step + delay_steps + final_padding;
-        machine_offset = lmgen_state->offset;
-        if ( machine_offset < end_offset || machine_state->end_step == -1 ) {
+        if ( moshi_lm_is_active( gen ) ) {
             active = true;
-            machine_active = true;
-            //machine_offset++;
-        } else if ( machine_state->is_empty() ) {
+        } else if ( moshi_lm_is_empty( gen ) ) {
             // reset?
             if ( ! machine_clean ) {
-                printf("reset\n");
-                //machine->reset_state( machine_state );
-                //machine_offset = 0;
+                printf("rest\n");
                 machine_clean = true;
             }
         }

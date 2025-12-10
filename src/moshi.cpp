@@ -1,4 +1,10 @@
-#pragma once
+
+#include <assert.h>
+#include <math.h>
+
+#include <iostream>
+
+#include <moshi/moshi.h>
 
 // for src/context.h
 #include <ggml.h>
@@ -19,8 +25,6 @@
 #define ONCE(code) {static bool once=false; if (!once) {{code;}; once=true;}}
 #define ON_NTH(nth, code) {static int count=0; if (count++ == (nth)) {code;}}
 
-#include "../src/ptrs.h"
-#include "../src/safetensor.h"
 #include "../src/config.h"
 #include "../src/context.h"
 #include "../src/wav.h"
@@ -37,7 +41,6 @@
 #include "../src/moshi/models/compression.h"
 #include "../src/moshi/models/lm_default.h"
 #include "../src/moshi/models/tts.h"
-#include "ffmpeg_helpers.h"
 
 struct moshi_context_t {
     ggml_backend * backend;
@@ -45,14 +48,40 @@ struct moshi_context_t {
     own_ptr<ScratchContext> scratch;
 };
 
-void moshi_alloc( moshi_context_t * moshi, ggml_backend * backend ) {
+struct mimi_codec_t {
+    int n_q;
+    moshi_context_t * moshi;
+    own_ptr<moshi_mimi_t> mimi;
+    own_ptr<WeightLoader> mimi_weights;
+};
+
+struct mimi_encode_context_t {
+    mimi_codec_t * codec;
+    own_ptr<StateContext> state_ctx;
+    own_ptr<moshi_mimi_state_t> states;
+    ggml_tensor * device_frame;
+    std::vector<int> tokens;
+};
+
+struct mimi_decode_context_t {
+    mimi_codec_t * codec;
+    own_ptr<StateContext> state_ctx;
+    own_ptr<moshi_mimi_state_t> states;
+    ggml_tensor * device_frame;
+    std::vector<int> tokens;
+    std::vector<float> frame;
+};
+
+// MARK: Moshi Context
+
+static void moshi_alloc( moshi_context_t * moshi, ggml_backend * backend ) {
     assert( backend );
     moshi->backend = backend;
     moshi->scratch_cpu = new ScratchContext( 256 );
     moshi->scratch = new ScratchContext( 256, backend );
 }
 
-void moshi_alloc( moshi_context_t * moshi, const char * device = NULL ) {
+static void moshi_alloc( moshi_context_t * moshi, const char * device ) {
     ggml_backend * backend;
     if ( device ) {
         backend = ggml_backend_init_by_name( device, NULL );
@@ -69,14 +98,25 @@ void moshi_alloc( moshi_context_t * moshi, const char * device = NULL ) {
     moshi_alloc( moshi, backend );
 }
 
-struct mimi_codec_t {
-    int n_q;
-    moshi_context_t * moshi;
-    own_ptr<moshi_mimi_t> mimi;
-    own_ptr<WeightLoader> mimi_weights;
-};
+moshi_context_t * moshi_alloc( ggml_backend * backend ) {
+    auto moshi = new moshi_context_t;
+    moshi_alloc( moshi, backend );
+    return moshi;
+}
 
-void mimi_alloc( mimi_codec_t * codec, moshi_context_t * moshi, const char * filename, int n_q ) {
+moshi_context_t * moshi_alloc( const char * device ) {
+    auto moshi = new moshi_context_t;
+    moshi_alloc( moshi, device );
+    return moshi;
+}
+
+void unref( moshi_context_t * moshi ) {
+    delete moshi;
+}
+
+// MARK: Mimi Codec
+
+static void mimi_alloc( mimi_codec_t * codec, moshi_context_t * moshi, const char * filename, int n_q ) {
     auto mimi = moshi_mimi_alloc_default( n_q );
     auto mimi_weights = WeightLoader::from_safetensor( filename,
         moshi->scratch_cpu, moshi->backend );
@@ -101,19 +141,27 @@ void mimi_alloc( mimi_codec_t * codec, moshi_context_t * moshi, const char * fil
     codec->mimi_weights = mimi_weights;
 }
 
-int mimi_frame_size( mimi_codec_t * mimi ) {
+mimi_codec_t * mimi_alloc( moshi_context_t * moshi, const char * filename, int n_q ) {
+    auto codec = new mimi_codec_t;
+    mimi_alloc( codec, moshi, filename, n_q );
+    return codec;
+}
+
+void unref( mimi_codec_t * codec ) {
+    delete codec;
+}
+
+float mimi_frame_rate( mimi_codec_t * codec ) {
+    return codec->mimi->frame_rate;
+}
+
+int mimi_frame_size( mimi_codec_t * codec ) {
     return 1920;
 }
 
-struct mimi_encode_context_t {
-    mimi_codec_t * codec;
-    own_ptr<StateContext> state_ctx;
-    own_ptr<moshi_mimi_state_t> states;
-    ggml_tensor * device_frame;
-    std::vector<int> tokens;
-};
+// MARK: Mimi Encode
 
-void mimi_encode_alloc_context( mimi_encode_context_t * context, mimi_codec_t * codec ) {
+static void mimi_encode_alloc_context( mimi_encode_context_t * context, mimi_codec_t * codec ) {
     auto state_ctx = new StateContext( codec->moshi->backend );
     auto mimi_states = moshi_mimi_encoder_states( state_ctx, codec->mimi );
     int frame_size = mimi_frame_size( codec );
@@ -128,6 +176,16 @@ void mimi_encode_alloc_context( mimi_encode_context_t * context, mimi_codec_t * 
     context->state_ctx = state_ctx;
     context->states = mimi_states;
     context->device_frame = device_frame;
+}
+
+mimi_encode_context_t * mimi_encode_alloc_context( mimi_codec_t * codec ) {
+    auto context = new mimi_encode_context_t;
+    mimi_encode_alloc_context( context, codec );
+    return context;
+}
+
+void unref( mimi_encode_context_t * context ) {
+    delete context;
 }
 
 void mimi_encode_send( mimi_encode_context_t * context, float * frame ) {
@@ -148,16 +206,9 @@ void mimi_encode_receive( mimi_encode_context_t * context, int16_t * tokens ) {
         tokens[i] = context->tokens[i];
 }
 
-struct mimi_decode_context_t {
-    mimi_codec_t * codec;
-    own_ptr<StateContext> state_ctx;
-    own_ptr<moshi_mimi_state_t> states;
-    ggml_tensor * device_frame;
-    std::vector<int> tokens;
-    std::vector<float> frame;
-};
+// MARK: Mimi Decode
 
-void mimi_decode_alloc_context( mimi_decode_context_t * context, mimi_codec_t * codec ) {
+static void mimi_decode_alloc_context( mimi_decode_context_t * context, mimi_codec_t * codec ) {
     auto state_ctx = new StateContext( codec->moshi->backend );
     NE upsample_ne = {1, 512, 1, 1};
     NE decoder_ne = {2, 512, 1, 1};
@@ -176,6 +227,16 @@ void mimi_decode_alloc_context( mimi_decode_context_t * context, mimi_codec_t * 
     context->device_frame = device_frame;
     context->tokens.resize( codec->n_q );
     context->frame.resize( frame_size );
+}
+
+mimi_decode_context_t * mimi_decode_alloc_context( mimi_codec_t * codec ) {
+    auto context = new mimi_decode_context_t;
+    mimi_decode_alloc_context( context, codec );
+    return context;
+}
+
+void unref( mimi_decode_context_t * context ) {
+    delete context;
 }
 
 void mimi_decode_send( mimi_decode_context_t * context, int16_t * tokens ) {
@@ -198,6 +259,7 @@ void mimi_decode_receive( mimi_decode_context_t * context, float * frame ) {
     memcpy( frame, context->frame.data(), context->frame.size() * 4 );
 }
 
+// MARK: Voice Condition
 
 void voice_condition( voice_t * voice,
         conditioners_t * cond,
@@ -271,108 +333,9 @@ void voice_condition( voice_t * voice,
     b_voice_ctx.compute();
 }
 
-void voice_prefix( voice_t * voice,
-        Decoder * decoder,
-        mimi_codec_t * codec,
-        moshi_lmmodel_t * lm,
-        moshi_context_t * moshi
-) {
-    const int frame_size = mimi_frame_size( codec );
-    const int n_q = lm->n_q;
-    const int max_delay = lm->max_delay;
-    const int delay_steps = lm->delay_steps;
+// MARK: Tokenizer
 
-    mimi_encode_context_t encoder;
-    mimi_encode_alloc_context( &encoder, codec );
-
-    AVChannelLayout mono;
-    av_channel_layout_default( &mono, 1 );
-    Resampler resampler;
-    resampler.set_input( decoder->codec_ctx );
-    resampler.set_output( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
-    resampler.init();
-
-    // prepend delays
-    for ( int i = 0; i < max_delay + delay_steps; i++ ) {
-        voice->audio_prefixes.push_back({});
-        auto & codes = voice->audio_prefixes.back();
-        codes.resize( n_q );
-        for ( int j = 0; j < n_q; j++ ) {
-            codes[j] = lm_ungenerated_token_id;
-        }
-    }
-
-    std::vector<int16_t> tokens(n_q);
-
-    // main loop
-    int frame_count = 0;
-    AVFrame * dec_frame;
-    while ( ( dec_frame = decoder->frame() ) ) {
-        auto frame = resampler.frame( dec_frame );
-        while ( frame ) {
-            mimi_encode_send( &encoder, (float*)frame->data[0] );
-            mimi_encode_receive( &encoder, tokens.data() );
-
-            voice->text_prefixes.push_back( -1 ); // zero_id
-            voice->audio_prefixes.push_back({});
-            std::vector<int> & audio_codes = voice->audio_prefixes.back();
-            audio_codes.resize( n_q );
-            // 16bit to 32bit
-            for ( int i = 0; i < n_q; ++i ) {
-                audio_codes[i] = tokens[i];
-            }
-            // HACK: moving known delayed code from config
-            auto nprefixes = voice->audio_prefixes.size();
-            voice->audio_prefixes[nprefixes-3][0] = audio_codes[0];
-            audio_codes[0] = lm_ungenerated_token_id;
-
-            frame_count++;
-            frame = resampler.frame();
-        }
-    }
-    auto frame = resampler.flush( true ); // inject silence
-    if ( frame ) {
-        mimi_encode_send( &encoder, (float*)frame->data[0] );
-        mimi_encode_receive( &encoder, tokens.data() );
-
-        voice->text_prefixes.push_back( -1 ); // zero_id
-        voice->audio_prefixes.push_back({});
-        std::vector<int> & audio_codes = voice->audio_prefixes.back();
-        audio_codes.resize( n_q );
-        // 16bit to 32bit
-        for ( int i = 0; i < n_q; ++i ) {
-            audio_codes[i] = tokens[i];
-        }
-        // HACK: moving known delayed code from config
-        auto nprefixes = voice->audio_prefixes.size();
-        voice->audio_prefixes[nprefixes-3][0] = audio_codes[0];
-        audio_codes[0] = lm_ungenerated_token_id;
-
-        frame_count++;
-    }
-}
-
-struct tokenizer_t {
-    sentencepiece::SentencePieceProcessor sp;
-    int padding_between = 1;
-    bool insert_bos = true;
-
-    std::string tail;
-
-    enum {
-        FIND_START,
-        FIND_END,
-        CHECK_WORD,
-        TOKENIZE,
-    } state = FIND_START;
-    int offset = 0, start_offset = 0, end_offset = 0;
-
-    int found_break = 0;
-    float time;
-    std::deque<std::string> words;
-};
-
-int tokenizer_tokenize( tokenizer_t * tok, std::string & word, Entry * entry ) {
+static int tokenizer_tokenize( tokenizer_t * tok, std::string & word, Entry * entry ) {
     const int text_bos_token = 1;
 
     std::vector<int> tokens;
@@ -400,7 +363,7 @@ int tokenizer_tokenize( tokenizer_t * tok, std::string & word, Entry * entry ) {
     return 0;
 }
 
-int tokenizer_break( tokenizer_t * tok, Entry * entry ) {
+static int tokenizer_break( tokenizer_t * tok, Entry * entry ) {
     const int tok_pad_id = 3;
     const float frame_rate = 12.5f;
 
@@ -433,7 +396,7 @@ int tokenizer_break( tokenizer_t * tok, Entry * entry ) {
     return 1;
 }
 
-int tokenizer_break_time( tokenizer_t * tok ) {
+static int tokenizer_break_time( tokenizer_t * tok ) {
     std::string & word = tok->words.back();
     if ( ! word.starts_with( "time=\"" ) )
         return 0;
@@ -583,95 +546,252 @@ int tokenizer_receive( tokenizer_t * tok, Entry * entry ) {
     return 0;
 }
 
-/*
-int tokenizer_parse_break( tokenizer * tok ) {
-    while( true ) {
-        switch( tok->break_state ) {
-        case BREAK_NONE:
-        }
-    }
-}
+// MARK: LM
 
-int tokenizer_receive( tokenizer * tok, Entry * entry ) {
-    int length = (int)tok->remaining.size();
-    if ( ! length )
-        return 0;
-
-    const_str_t s = { tok->remaining.c_ptr(), length };
-    int offset = str_skip_whitespaces( s, 0 );
-    if ( offset == length ) {
-        tokenizer->remaining = "";
-        return 0;
-    }
-
-    int end_offset = str_find_white_spaces( s, offset );
-    if ( end_offset == length )
-        return 0;
-
-    // check for potential break without leading space "word<break"
-    if ( end_offset < 6 || strncmp( s.s + end_offset - 6, "<break", 6 ) != 0 ) {
-        std::string word;
-        word.assign( s.s + end_offset, word )
-        std::vector<int> tokens;
-        tokenizer.Encode(word, &tokens);
-    }
-
-    int break_offset = str_find( s, offset, "<break", 6 );
-    if ( break_offset < end_offset && ( end_offset - break_offset ) == 6 ) {
-        end_offset = str_skip_whitespaces( s, end_offset );
-        int remaining = s.length - end_offset;
-        if ( remaining < 6 )
-            return 0;
-        if ( strcmp( s.s + end_offset, "time=\"" ) == 0 ) {
-            int num_start = end_offset + 6;
-            end_offset = str_find_not_of( s, num_start, "0123456789." );
-            if ( end_offset == length )
-                return 0;
-
-        }
-    }
-
-    tokenizer->remaining = std::string(s.s + offset);
-    return 1;
-}
-*/
-
-
-/*struct moshi_lm_t {
-    own_ptr<moshi_lmmodel_t> lm;
+struct moshi_lm_t {
+    bool uses_cross;
+    moshi_lmmodel_t * model;
+    unref_ptr<SafeTensorFile> stf;
     own_ptr<WeightLoader> weights;
+    own_ptr<WeightLoader> cond_weights;
+    own_ptr<conditioners_t> cond;
+    bool second_stream_ahead;
 };
 
-void lm_alloc( moshi_context_t * moshi,  moshi_lm_t * lm, moshi_config_t * config ) {
-    lm->lm = moshi_lmmodel_alloc_default( config );
-    lm->weights = WeightLoader::from_safetensor( lm_path.c_str(), moshi->scratch_cpu, moshi->backend );
-    assert( lm->weights );
-    get_weights( lm->weights, "lm.", lm->lm );
-    get_weights( lm->weights, &lm->cond );
-    {CAPTURE_GROUP("lm");
-    lm->weights->load();}
+moshi_lm_t * moshi_lm_from_files( moshi_context_t * moshi, moshi_config_t * config, const char * filepath ) {
+    auto lm = new moshi_lm_t;
+
+    lm->stf = SafeTensorFile::from_file( filepath );
+    if ( ! lm->stf )
+        return NULL;
+
+    lm->weights = WeightLoader::from_safetensor( lm->stf, moshi->scratch_cpu, moshi->backend );
+    if ( ! lm->weights )
+        return NULL;
+
+
+    if ( config->cross_attention ) {
+        lm->cond_weights = WeightLoader::from_safetensor( lm->stf, moshi->scratch_cpu, moshi->backend );
+        if ( ! lm->cond_weights )
+            return NULL;
+    }
+
+    lm->model = moshi_lmmodel_alloc_default( config );
+
+    lm->uses_cross = config->cross_attention;
+    lm->second_stream_ahead = config->tts_config.second_stream_ahead;
+
+    return lm;
+}
+
+void unref( moshi_lm_t * lm ) {
+    delete lm;
+}
+
+void moshi_lm_set_delay_steps( moshi_lm_t * lm, int delay_steps ) {
+    lm->model->delay_steps = delay_steps;
+}
+
+int moshi_lm_get_max_delay( moshi_lm_t * lm ) {
+    return lm->model->max_delay;
+}
+
+int moshi_lm_get_delay_steps( moshi_lm_t * lm ) {
+    return lm->model->delay_steps;
+}
+
+int moshi_lm_load( moshi_lm_t * lm ) {
+    get_weights( lm->weights, "lm.", lm->model );
+    lm->weights->load();
+
+    if ( lm->uses_cross ) {
+        lm->cond = new conditioners_t;
+        get_weights( lm->cond_weights, lm->cond );
+        lm->cond_weights->load();
+    }
+
+    return 0;
+}
+
+// MARK: Generator
+
+struct moshi_lm_gen_t {
+    moshi_lm_t * lm;
+
+    own_ptr<voice_t> voice;
+    own_ptr<WeightLoader> voice_weights;
+
+    moshi_lmgen_t lmgen;
+    StateMachine * machine;
+    State * machine_state;
+    StateContext * state_ctx;
+    ScratchContext * ctx;
+    std::vector<int> audio_tokens;
+
+    moshi_lmmodel_states_t * lm_states;
+    moshi_lmgen_state_t * lmgen_state;
+};
+
+moshi_lm_gen_t * moshi_lm_generator( moshi_lm_t * lm ) {
+    auto gen = new moshi_lm_gen_t;
+    gen->lm = lm;
+    return gen;
+}
+
+void unref( moshi_lm_gen_t * gen ) {
+    delete gen;
+}
+
+int moshi_lm_set_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen, const char * filepath ) {
+    if ( ! gen->lm->uses_cross )
+        return -1;
+
+    gen->voice_weights = WeightLoader::from_safetensor( filepath, moshi->scratch_cpu, moshi->backend );
+    if ( ! gen->voice_weights )
+        return -1;
+
+    return 0;
+}
+
+int moshi_lm_load_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen ) {
+    if ( ! gen->lm->uses_cross )
+        return -1;
+
+    if ( ! gen->lm->cond )
+        return -2;
+
+    gen->voice = new voice_t;
+    gen->voice->ctx = NULL;
+    gen->voice->buffer = NULL;
+    gen->voice->sum = NULL;
+    gen->voice->cross = NULL;
+
+    ggml_tensor * speaker_wavs;
+    gen->voice_weights->fetch( &speaker_wavs, "voice.speaker_wavs" );
+    gen->voice_weights->load();
+
+    voice_condition( gen->voice, gen->lm->cond, speaker_wavs, moshi );
+
+    return 0;
+}
+
+int moshi_lm_voice_prefix( moshi_lm_gen_t * gen, std::deque<int> & text_prefix, std::deque<std::vector<int>> & audio_prefix ) {
+    gen->voice = new voice_t;
+    gen->voice->ctx = NULL;
+    gen->voice->buffer = NULL;
+    gen->voice->sum = NULL;
+    gen->voice->cross = NULL;
+    gen->voice->text_prefixes.swap( text_prefix );
+    gen->voice->audio_prefixes.swap( audio_prefix );
+    return 0;
+}
+
+void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature ) {
+    const int max_padding = 8;
+    const int initial_padding = 2;
+    const int second_stream_ahead = gen->lm->second_stream_ahead;
+    gen->state_ctx = new StateContext( moshi->backend );
+    if ( gen->voice ) {
+        gen->machine = new StateMachine(gen->lm->model->text_card + 1, second_stream_ahead, max_padding, initial_padding);
+        gen->machine->logging = true;
+        gen->machine_state = gen->machine->new_state();
+        gen->lmgen = moshi_lmgen_t{
+            gen->lm->model,
+            true, depth_temperature, text_temperature, 250, 25,
+            gen->machine, gen->machine_state,
+            gen->voice->sum, gen->voice->cross,
+            &gen->voice->text_prefixes, &gen->voice->audio_prefixes
+        };
+        gen->lm_states = moshi_lmmodel_states( gen->state_ctx, gen->lm->model, gen->voice->cross );
+    } else {
+        gen->lmgen = moshi_lmgen_t{
+            gen->lm->model,
+            true, depth_temperature, text_temperature, 250, 25,
+            NULL, NULL, // no state machine
+            NULL, NULL, // no cross
+            NULL, NULL, // empty prefixes
+        };
+        gen->lm_states = moshi_lmmodel_states( gen->state_ctx, gen->lm->model, NULL );
+    }
+    gen->lmgen_state = moshi_lmgen_state( gen->lm->model );
+    gen->state_ctx->alloc();
+    gen->state_ctx->init();
+    init( gen->lm_states );
+
+    gen->ctx = new ScratchContext( 256, moshi->backend );
+    gen->audio_tokens.resize( gen->lm->model->num_audio_codebooks );
+}
+
+void moshi_lm_send( moshi_lm_gen_t * gen, Entry * entry ) {
+    gen->machine_state->entries.push_back( *entry );
+}
+
+int moshi_lm_receive( moshi_lm_gen_t * gen, int & text_token, std::vector<int16_t> & audio_tokens ) {
+    bool depformer_replace_tokens = (gen->lmgen_state->offset < gen->lm->model->delay_steps);
+    bool has_audio_tokens = moshi_lmgen_step(
+        *gen->ctx,
+        &gen->lmgen, gen->lmgen_state,
+        gen->lm_states,
+        depformer_replace_tokens,
+        text_token,
+        gen->audio_tokens
+    );
+    audio_tokens.resize( gen->audio_tokens.size() );
+    if ( has_audio_tokens ) {
+        for ( int i = 0; i < gen->audio_tokens.size(); ++i )
+            audio_tokens[i] = gen->audio_tokens[i];
+    }
+    return has_audio_tokens? 1 : 0;
+}
+
+void moshi_lm_send2( moshi_lm_gen_t * gen, std::vector<int16_t> & audio_tokens ) {
+    for ( int i = 0; i < audio_tokens.size(); ++i )
+        gen->audio_tokens[i] = audio_tokens[i];
+}
+
+void moshi_lm_receive2( moshi_lm_gen_t * gen, int & text_token, float & vad ) {
+    moshi_lmgen_step(
+        *gen->ctx,
+        &gen->lmgen, gen->lmgen_state,
+        gen->lm_states,
+        false, //depformer_replace_tokens
+        text_token,
+        gen->audio_tokens,
+        &vad
+    );
+}
+
+int moshi_lm_is_active( moshi_lm_gen_t * gen ) {
+    const int final_padding = 4;
+    int end_offset = gen->machine_state->end_step + gen->lm->model->delay_steps + final_padding;
+    int offset = gen->lmgen_state->offset;
+    return ( offset < end_offset || gen->machine_state->end_step == -1 );
+}
+
+int moshi_lm_is_empty( moshi_lm_gen_t * gen ) {
+    return gen->machine_state->is_empty();
+}
+
+void moshi_lm_machine_reset( moshi_lm_gen_t * gen ) {
+    gen->machine->reset_state( gen->machine_state );
+}
+
+// MARK: Misc
+
+/*int moshi_lm_n_q( moshi_lmmodel_t * lm ) {
+    return lm->n_q;
+}
+
+int moshi_lm_max_delay( moshi_lmmodel_t * lm ) {
+    return lm->max_delay;
+}
+
+int moshi_lm_delay_steps( moshi_lmmodel_t * lm ) {
+    return lm->delay_steps;
 }*/
 
 
 
-/*struct moshi_tokenizer_t {
-    sentencepiece::SentencePieceProcessor sp;
-};
-
-void tokenizer_alloc( moshi_tokenizer_t * tokenizer, const char * model_filepath ) {
-    tokenizer->sp.Load( model_filepath );
-}
-
-struct moshi_tokenizer_context_t {
-    moshi_tokenizer_t * tokenizer;
-    std::string remaining;
-    std::deque<Entries> frames;
-};*/
-
-// lm would probably drain as many frames as it can from tokenizer on loop
-// that could also be threaded though
-// in fact it might make sense for the StateMachine/State to be a thread
-// lockable pipe.
 
 
 

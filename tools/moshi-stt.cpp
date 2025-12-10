@@ -10,9 +10,10 @@
 #include <unistd.h>
 #include <libgen.h>
 
+#include <moshi/moshi.h>
 #include "ffmpeg_helpers.h"
 #include "sdl_helper.h"
-#include "moshi.h"
+#include "util.h"
 
 //#define DEFAULT_BIG
 #define SDL_OUT
@@ -33,86 +34,6 @@ static void print_usage(const char * program) {
     exit(1);
 }
 
-static void list_devices() {
-    auto dev_count = ggml_backend_dev_count();
-    fprintf( stderr, "available devices:\n" );
-    for (size_t i = 0; i < dev_count; i++) {
-        auto dev = ggml_backend_dev_get( i );
-        auto name = ggml_backend_dev_name( dev );
-        fprintf( stderr, "  \"%s\"\n", name );
-    }
-    exit(1);
-}
-
-int find_last( const char * s, char c ) {
-    int index = -1;
-    for ( int i = 0; s[i]; ++i ) {
-        if ( s[i] == c )
-            index = i;
-    }
-    return index;
-}
-
-int find_last( const char * s, int size, char c ) {
-    for ( int i = size - 1; i >= 0; --i ) {
-        if ( s[i] == c )
-            return i;
-    }
-    return -1;
-}
-
-int find_last( std::string s, char c ) {
-    return find_last( s.c_str(), s.size(), c );
-}
-
-const char * get_ext( const char * filename ) {
-    int index = find_last( filename, '.' );
-    if ( index < 0 )
-        return NULL;
-    return filename + index;
-}
-
-bool is_abs_or_rel( std::string & path ) {
-    auto size = path.size();
-    if ( size < 1 )
-        return false;
-    if ( path[0] == '/' )
-        return true; // absolute
-    if ( path[0] != '.' )
-        return false;
-    if ( size < 2 ) // "."
-        return true;
-    if ( path[1] == '/' ) // "./"
-        return true;
-    if ( path[1] != '.' )
-        return false;
-    if ( size < 3 ) // ".."
-        return true;
-    return path[2] == '/'; // "../"
-}
-
-std::string get_program_path( const char * argv0 ) {
-    std::string path;
-    int index = find_last( argv0, '/' );
-    if ( index >= 0 ) {
-        path.assign( argv0, index+1 );
-        return path;
-    }
-    // TODO: add support for windows?
-    /*char filepath[4096];
-    auto size = readlink( "/proc/self/exe", filepath, sizeof(filepath) - 1 );
-    assert ( size != -1 && size != sizeof(filepath) - 1 );
-    index = find_last( filepath, size, '/' );
-    assert( index >= 0 );
-    path.assign( filepath, index+1 );
-    return path;*/
-    return "./";
-}
-
-void unref( FILE * f ) {
-    fclose( f );
-}
-
 #include <signal.h>
 void signal_handler(int dummy) {
     printf("exit\n");
@@ -127,9 +48,6 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, signal_handler);
 
     const char * device = NULL;
-    //const char * input_filename = "test.mp3";
-    //const char * input_filename = "test.wav";
-    //const char * input_filename = "test.mimi";
     const char * input_filename = NULL;
     const char * output_filename = NULL;
     bool output_debug = false;
@@ -330,18 +248,14 @@ int main(int argc, char *argv[]) {
     // MARK: Open / Allocate
     ///////////////////////////////////////////////
 
-    moshi_context_t moshi;
-    moshi_alloc( &moshi, device );
+    // context
+    unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
 
     // model
-    auto lm = moshi_lmmodel_alloc_default( &stt_config );
-    auto lm_stf = SafeTensorFile::from_file( moshi_filepath.c_str() );
-    if ( ! lm_stf ) {
-        fprintf( stderr, "error: failed to oepn safetensors model file: \"%s\"\n", moshi_filepath.c_str() );
-        exit(1);
-    }
-    auto lm_weights = WeightLoader::from_safetensor( lm_stf, moshi.scratch_cpu, moshi.backend );
-    assert( lm_weights );
+    unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &stt_config, moshi_filepath.c_str() );
+
+    // generator
+    unref_ptr<moshi_lm_gen_t> gen = moshi_lm_generator( lm );
 
     // input
     own_ptr<Decoder> decoder;
@@ -356,6 +270,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // output
     unref_ptr<FILE> output_file;
     FILE * out = stdout;
     bool output_srt = false;
@@ -385,10 +300,9 @@ int main(int argc, char *argv[]) {
     sp.Load( tokenizer_filepath );
 
     // codec
-    mimi_codec_t codec;
-    mimi_alloc( &codec, &moshi, mimi_filepath.c_str(), stt_config.n_q );
-    float frame_rate = codec.mimi->frame_rate;
-    int frame_size = mimi_frame_size( &codec );
+    unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), stt_config.n_q );
+    float frame_rate = mimi_frame_rate( codec );
+    int frame_size = mimi_frame_size( codec );
     int stt_frame_delay = stt_config.stt_config.audio_delay_seconds * frame_rate;
 
     // input (decoder/sdl)
@@ -459,8 +373,7 @@ int main(int argc, char *argv[]) {
     }
 
     // model
-    get_weights( lm_weights, "lm.", lm );
-    lm_weights->load();
+    moshi_lm_load( lm );
 
     printf("done loading.\n");
 
@@ -471,34 +384,13 @@ int main(int argc, char *argv[]) {
     srand( seed );
 
     // mimi encoder
-    mimi_encode_context_t encoder;
-    mimi_encode_alloc_context( &encoder, &codec );
+    unref_ptr<mimi_encode_context_t> encoder = mimi_encode_alloc_context( codec );
 
     // model
-    auto lmgen = moshi_lmgen_t{
-        lm,
-        true, // use_sampler
+    moshi_lm_start( moshi, gen,
         stt_config.lm_gen_config.temp,
-        stt_config.lm_gen_config.temp_text,
-        (int)stt_config.lm_gen_config.top_k,
-        (int)stt_config.lm_gen_config.top_k_text,
-        NULL, NULL, // no state machine
-        NULL, NULL, // no cross
-        NULL, NULL, // empty prefixes
-    };
-    StateContext state_ctx( moshi.backend );
-    auto lm_states = moshi_lmmodel_states( &state_ctx, lm, NULL );
-    auto lmgen_state = moshi_lmgen_state( lm );
-    state_ctx.alloc();
-    state_ctx.init();
-    init( lm_states );
-
-    ScratchContext ctx( 256, moshi.backend );
-    std::vector<std::vector<float>> pcms2;
-    int int_text_token;
-    std::vector<int> int_audio_tokens( lm->num_audio_codebooks );
-    std::vector<int16_t> int16_audio_tokens( lm->num_audio_codebooks );
-    const int final_padding = 4;
+        stt_config.lm_gen_config.temp_text
+    );
 
     if ( use_sdl ) {
         SDL_PauseAudioDevice(input_state.device_id, 0);
@@ -528,7 +420,7 @@ int main(int argc, char *argv[]) {
             memcpy( output_frame->data, input_frame->data, output_frame->nb_bytes );
             sdl_send_frame( output_state, output_frame );
 #endif
-            mimi_encode_send( &encoder, (float*)input_frame->data );
+            mimi_encode_send( encoder, (float*)input_frame->data );
             sdl_free_frame( input_state, input_frame );
         } else {
             if ( frame ) { // get next frame
@@ -547,25 +439,16 @@ int main(int argc, char *argv[]) {
             if ( ! frame ) { // not enough decoded frames for the resampler
                 continue;
             }
-            mimi_encode_send( &encoder, (float*)frame->data[0] );
+            mimi_encode_send( encoder, (float*)frame->data[0] );
         }
 
-        mimi_encode_receive( &encoder, tokens.data() );
+        mimi_encode_receive( encoder, tokens.data() );
 
-        for ( int i = 0; i < tokens.size(); ++i )
-            tokens2[i] = tokens[i];
+        moshi_lm_send2( gen, tokens );
 
         int text_token;
         float vad = 0;
-        moshi_lmgen_step(
-            ctx,
-            &lmgen, lmgen_state,
-            lm_states,
-            false, //depformer_replace_tokens
-            text_token,
-            tokens2,
-            &vad
-        );
+        moshi_lm_receive2( gen, text_token, vad );
         if ( output_debug ) {
             if ( vad > 0.5 ) {
                 fprintf(out, "*%f", vad);

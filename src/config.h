@@ -17,15 +17,6 @@ int util_json_object_log_skip( const_str_t & json, int offset, const char * labe
     return offset;
 }
 
-
-struct config_fuser_t {
-    bool cross_attention_pos_emb; // true
-    float cross_attention_pos_emb_scale; // 1
-    std::vector<std::string> sum; // [ "control", "cfg" ]
-    // ? "prepend": [],
-    std::vector<std::string> cross; // [ "speaker_wavs" ]
-};
-
 int config_fuser_parse( const_str_t & json, int offset, config_fuser_t & fuser ) {
     offset = json_object_parse(json, offset, [&fuser](
             const_str_t & json, int offset,
@@ -60,11 +51,6 @@ int config_fuser_parse( const_str_t & json, int offset, config_fuser_t & fuser )
     return offset;
 }
 
-struct config_tts_t {
-    float audio_delay; // 1.28
-    int64_t second_stream_ahead; // 2
-};
-
 int config_tts_parse( const_str_t & json, int offset, config_tts_t & tts_config ) {
     offset = json_object_parse(json, offset, [&tts_config](
             const_str_t & json, int offset,
@@ -85,11 +71,6 @@ int config_tts_parse( const_str_t & json, int offset, config_tts_t & tts_config 
     });
     return offset;
 }
-
-struct config_stt_t {
-    float audio_delay_seconds; // 0.5
-    float audio_silence_prefix_seconds; // 0.0
-};
 
 int config_stt_parse( const_str_t & json, int offset, config_stt_t & stt_config ) {
     offset = json_object_parse(json, offset, [&stt_config](
@@ -112,11 +93,6 @@ int config_stt_parse( const_str_t & json, int offset, config_stt_t & stt_config 
     return offset;
 }
 
-struct config_model_id_t {
-    std::string sig;
-    int64_t epoch;
-};
-
 int config_model_id_parse( const_str_t & json, int offset, config_model_id_t & model_id ) {
     offset = json_object_parse(json, offset, [&model_id](
             const_str_t & json, int offset,
@@ -138,13 +114,6 @@ int config_model_id_parse( const_str_t & json, int offset, config_model_id_t & m
     });
     return offset;
 }
-
-struct config_lm_gen_t {
-    float temp; // 0.6
-    float temp_text; // 0.6
-    int64_t top_k; // 250
-    int64_t top_k_text; // 50
-};
 
 int config_lm_gen_parse( const_str_t & json, int offset, config_lm_gen_t & lm_gen_config ) {
     offset = json_object_parse(json, offset, [&lm_gen_config](
@@ -175,50 +144,6 @@ int config_lm_gen_parse( const_str_t & json, int offset, config_lm_gen_t & lm_ge
     });
     return offset;
 }
-
-struct moshi_config_t {
-    int64_t card; // 2048
-    int64_t n_q; // 32 || 16
-    int64_t dep_q; // 32 || 16
-    std::vector<int64_t> delays; // 32 || 16
-    int64_t dim; // 2048 || 1024
-    int64_t text_card; // 8000
-    int64_t existing_text_padding_id; // 3
-    int64_t num_heads; // 16
-    int64_t num_layers; // 16 || 24
-    float hidden_scale; // 4.125
-    bool causal; // true
-    // layer_scale = NULL;
-    int64_t context; // 500
-    int64_t max_period; // 10000
-    std::string gating;// "silu"
-    std::string norm; // "rms_norm_f32"
-    std::string positional_embedding; // "rope"
-    int64_t depformer_dim; // 1024
-    int64_t depformer_num_heads; // 16
-    int64_t depformer_num_layers; // 4
-    //int64_t depformer_dim_feedforward; // 3072   no needed, it's in the weight files
-    bool depformer_multi_linear; // true
-    std::string depformer_pos_emb; // "none"
-    bool depformer_weights_per_step; // true
-    int64_t depformer_low_rank_embeddings; // 128
-    bool demux_second_stream; // true
-    // text_card_out = null || 5
-    // conditioners_t * conditioners; // NULL
-    config_fuser_t fuser;
-    bool cross_attention; // true || false
-    int64_t extra_heads_num_heads;
-    //int extra_heads_dim; // this will come from weights
-    config_tts_t tts_config;
-    config_stt_t stt_config;
-    config_model_id_t model_id;
-    std::vector<int64_t> depformer_weights_per_step_schedule; // 32 || 16
-    std::string model_type;
-    config_lm_gen_t lm_gen_config;
-    std::string tokenizer_name; // "tokenizer_spm_8k_en_fr_audio.model"
-    std::string mimi_name; // "tokenizer-e351c8d8-checkpoint125.safetensors",
-    std::string moshi_name; // "dsm_tts_1e68beda@240.safetensors" || "dsm_tts_d6ef30c7@1000.safetensors"
-};
 
 int moshi_get_config( moshi_config_t * config, const char * filename ) {
     config->demux_second_stream = false;

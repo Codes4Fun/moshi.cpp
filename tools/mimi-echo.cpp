@@ -3,8 +3,11 @@
 #include <iostream> // tts
 #include <pthread.h>
 
+#include <unistd.h>
+
+#include <moshi/moshi.h>
 #include "sdl_helper.h"
-#include "moshi.h"
+#include "util.h"
 
 static void print_usage(const char * program) {
     fprintf( stderr, "usage: %s [option(s)]\n", program );
@@ -14,17 +17,6 @@ static void print_usage(const char * program) {
     fprintf( stderr, "  -q N,     --n_q N         compression level. max 32. 32 by default.\n" );
     fprintf( stderr, "  -l,       --list-devices  list devices and exit.\n" );
     fprintf( stderr, "  -d NAME,  --device NAME   use named device.\n" );
-    exit(1);
-}
-
-static void list_devices() {
-    auto dev_count = ggml_backend_dev_count();
-    fprintf( stderr, "available devices:\n" );
-    for (size_t i = 0; i < dev_count; i++) {
-        auto dev = ggml_backend_dev_get( i );
-        auto name = ggml_backend_dev_name( dev );
-        fprintf( stderr, "  \"%s\"\n", name );
-    }
     exit(1);
 }
 
@@ -41,7 +33,7 @@ int main(int argc, char *argv[]) {
 
     int n_q = 32;
     const char * device = NULL;
-    const char * model_filename = "tokenizer-e351c8d8-checkpoint125.safetensors";
+    std::string model_filename = "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors";
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -87,23 +79,29 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    if ( access( model_filename.c_str(), F_OK | R_OK ) != 0 ) {
+        if ( is_abs_or_rel( model_filename ) ) {
+            fprintf( stderr, "error: failed to find model from path: \"%s\"\n", model_filename.c_str() );
+            exit(1);
+        }
+        std::string program_path = get_program_path(argv[0]);
+        model_filename = program_path + "/" + model_filename;
+        if ( access( model_filename.c_str(), F_OK | R_OK ) != 0 ) {
+            fprintf( stderr, "error: failed to find model.\n" );
+            exit(1);
+        }
+    }
+
     if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_TIMER) != 0) {
         fprintf(stderr, "Could not initialize SDL: %s\n", SDL_GetError());
         return 1;
     }
 
-    moshi_context_t moshi;
-    moshi_alloc( &moshi, device );
-
-    mimi_codec_t codec;
-    mimi_alloc( &codec, &moshi, model_filename, n_q );
-    int frame_size = mimi_frame_size( &codec );
-
-    mimi_encode_context_t encoder;
-    mimi_encode_alloc_context( &encoder, &codec );
-
-    mimi_decode_context_t decoder;
-    mimi_decode_alloc_context( &decoder, &codec );
+    unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
+    unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, model_filename.c_str(), n_q );
+    unref_ptr<mimi_encode_context_t> encoder = mimi_encode_alloc_context( codec );
+    unref_ptr<mimi_decode_context_t> decoder = mimi_decode_alloc_context( codec );
+    int frame_size = mimi_frame_size( codec );
 
     AudioState input_state;
     sdl_init_frames( input_state, 3, frame_size*4 );
@@ -142,13 +140,13 @@ int main(int argc, char *argv[]) {
     std::vector<int16_t> tokens(n_q);
     sdl_frame_t * input_frame;
     while ((input_frame = sdl_receive_frame( input_state, true ))) {
-        mimi_encode_send( &encoder, (float*)input_frame->data );
-        mimi_encode_receive( &encoder, tokens.data() );
+        mimi_encode_send( encoder, (float*)input_frame->data );
+        mimi_encode_receive( encoder, tokens.data() );
         sdl_free_frame( input_state, input_frame );
 
         sdl_frame_t * output_frame = sdl_get_frame( output_state );
-        mimi_decode_send( &decoder, tokens.data() );
-        mimi_decode_receive( &decoder, (float*)output_frame->data );
+        mimi_decode_send( decoder, tokens.data() );
+        mimi_decode_receive( decoder, (float*)output_frame->data );
         sdl_send_frame( output_state, output_frame );
     }
 
