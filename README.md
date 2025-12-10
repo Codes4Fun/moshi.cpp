@@ -16,7 +16,7 @@ There are multiple tools that demo different components:
 * moshi-tts - demonstrates text inputs to audio outputs
 * moshi-stt - demonstrates audio inputs to text outputs
 
-The next steps would be to setup cmake, and then wrap more code in an api and make an official library. After that in no particular order: finish a download tool, integrate llama.cpp to implement an unmute like program, implement a gui.
+TODO: finish a download tool, integrate llama.cpp to implement an unmute like program, add a gui.
 
 ### Performance / Optimizations
 
@@ -30,7 +30,66 @@ I did create an optimization that does not exist in moshi, and that is instead o
 
 ## Building
 
-Work in progress.
+The library depends on SentencePiece (tested with 0.2.0) and GGML.
+
+The tools add additional dependences FFmpeg (8+) and SDL2.
+
+Builds have only been tested under Ubuntu and Windows MSYS2 MinGW x64.
+
+SentencePiece has only been tested using static linking, either built from source or binaries from:
+* https://github.com/google/sentencepiece/releases/tag/v0.2.0
+I found for MSYS2 MinGW x64, I've had to build it myself because of toolchain differences that show up as undefined references.
+
+GGML can be built from:
+* https://github.com/Codes4Fun/ggml
+or the offical repository:
+* https://github.com/ggml-org/ggml
+My custom version of GGML will get vulkan working.
+
+For FFmpeg, older versions of Ubutnu will not have the latest, it can be built from source or binaries from:
+* https://github.com/BtbN/FFmpeg-Builds/releases
+MSYS2 MinGW x64 has the latest and can be installed via:
+```
+pacman -S mingw-w64-x86_64-ffmpeg
+```
+
+For SDL2, it can be installed using standard package managers, for Ubuntu:
+```
+sudo apt install libsdl2-dev
+```
+And for MSYS2 MinGW x64:
+```
+pacman -S mingw-w64-x86_64-SDL2
+```
+
+With most of these in place you can use cmake by first creating a build directory:
+```
+mkdir build
+cd build
+```
+and then with updated folder locations below you can do something like MYS2 MinGW:
+```
+/mingw64/bin/cmake .. -G "MinGW Makefiles"\
+ -DGGML_INCLUDE_DIR=C:/repos/ggml/include\
+ -DGGML_LIBRARY_DIR=C:/repos/ggml/build/src\
+ -DSentencePiece_INCLUDE_DIR=C:/repos/sentencepiece/include\
+ -DSentencePiece_LIBRARY_DIR=C:/repos/sentencepiece/lib
+```
+or Ubuntu:
+```
+cmake .. \
+ -DGGML_INCLUDE_DIR=~/repos/ggml/include\
+ -DGGML_LIBRARY_DIR=~/repos/ggml/build/src\
+ -DSentencePiece_INCLUDE_DIR=~/repos/sentencepiece/include\
+ -DSentencePiece_LIBRARY_DIR=~/repos/sentencepiece/lib\
+ -DFFmpeg_DIR=~/lib/ffmpeg-master-latest-win64-lgpl-shared
+```
+
+And finally build it.
+```
+cmake --build .
+```
+That will create a bin directory under build. You will need to copy over ggml libraries, and if needed the ffmpeg libraries. On windows you will need to copy over ffmpeg, sdl2, and other libraries which you can find out by using `ldd` on the binaries.
 
 ## Data / Weights
 
