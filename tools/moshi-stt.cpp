@@ -24,6 +24,7 @@ static void print_usage(const char * program) {
     fprintf( stderr, "outputs to console if output not specified.\n" );
     fprintf( stderr, "\noption(s):\n" );
     fprintf( stderr, "  -h,       --help             show this help message\n" );
+    fprintf( stderr, "  -m PATH,  --model-root PATH  path to where all models are stored.\n" );
     fprintf( stderr, "  -sm PATH, --stt-model PATH   path to stt model.\n" );
     fprintf( stderr, "  -l,       --list-devices     list hardware and exit.\n" );
     fprintf( stderr, "  -d NAME,  --device NAME      use named hardware.\n" );
@@ -51,6 +52,8 @@ int main(int argc, char *argv[]) {
     const char * input_filename = NULL;
     const char * output_filename = NULL;
     bool output_debug = false;
+    const char * model_cache = getenv("MODEL_CACHE");
+    std::string model_root = model_cache? model_cache : "";
 #ifdef DEFAULT_BIG
     std::string stt_path = "kyutai/stt-2.6b-en";
 #else
@@ -67,6 +70,14 @@ int main(int argc, char *argv[]) {
         std::string arg = argv[i];
         if (arg == "-h" || arg == "--help") {
             print_usage(argv[0]);
+        }
+        if (arg == "-m" || arg == "--model-root") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires path to models\n", argv[i] );
+                exit(1);
+            }
+            model_root = argv[++i];
+            continue;
         }
         if (arg == "-sm" || arg == "--stt_model") {
             if (i + 1 >= argc) {
@@ -143,11 +154,9 @@ int main(int argc, char *argv[]) {
     }
 
     std::string program_path = get_program_path(argv[0]);
-
-    auto stt_path_size = stt_path.size();
-    if ( stt_path_size > 1 && stt_path[stt_path_size - 1] != '/' ) {
-        stt_path += "/";
-    }
+    ensure_path( program_path );
+    ensure_path( model_root );
+    ensure_path( stt_path );
 
     std::string stt_config_path = stt_path + "config.json";
     if ( access( stt_config_path.c_str(), F_OK | R_OK ) != 0 ) {
@@ -156,15 +165,15 @@ int main(int argc, char *argv[]) {
             fprintf( stderr, "error: failed to find config.json from path: \"%s\"\n", stt_path.c_str() );
             exit(1);
         }
-        std::vector<std::string> paths = {
-            program_path + stt_path,
-            "../" + stt_path,
-            program_path + "../" + stt_path,
-            "kyutai/" + stt_path,
-            program_path + "kyutai/" + stt_path,
-            "../kyutai/" + stt_path,
-            program_path + "../kyutai/" + stt_path,
-        };
+        std::vector<std::string> paths = { "kyutai/" + stt_path };
+        if ( model_root.size() ) {
+            paths.push_back( model_root + stt_path );
+            paths.push_back( model_root + "kyutai/" + stt_path );
+        }
+        if ( program_path.size() ) {
+            paths.push_back( program_path + stt_path );
+            paths.push_back( program_path + "kyutai/" + stt_path );
+        }
         bool found = false;
         for ( auto & path : paths ) {
             stt_config_path = path + "config.json";
@@ -193,13 +202,22 @@ int main(int argc, char *argv[]) {
         if ( stt_config.tokenizer_name == "tokenizer_spm_8k_en_fr_audio.model"
           || stt_config.tokenizer_name == "tokenizer_en_fr_audio_8000.model"
         ) {
-            // the file is the same for all models, it can be at a shared location
+            // the file is the same for several models
             std::vector<std::string> paths = {
-                "kyutai/tokenizer_spm_8k_en_fr_audio.model",
-                "../kyutai/tokenizer_spm_8k_en_fr_audio.model",
-                program_path + "kyutai/tokenizer_spm_8k_en_fr_audio.model",
-                program_path + "../kyutai/tokenizer_spm_8k_en_fr_audio.model",
+                "kyutai/tts-1.6b-en_fr/tokenizer_spm_8k_en_fr_audio.model",
+                "kyutai/tts-0.75b-en-public/tokenizer_spm_8k_en_fr_audio.model",
+                "stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model"
             };
+            if ( model_root.size() ) {
+                paths.push_back( model_root + "kyutai/tts-1.6b-en_fr/tokenizer_spm_8k_en_fr_audio.model" );
+                paths.push_back( model_root + "kyutai/tts-0.75b-en-public/tokenizer_spm_8k_en_fr_audio.model" );
+                paths.push_back( model_root + "stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model" );
+            }
+            if ( program_path.size() ) {
+                paths.push_back( program_path + "kyutai/tts-1.6b-en_fr/tokenizer_spm_8k_en_fr_audio.model" );
+                paths.push_back( program_path + "kyutai/tts-0.75b-en-public/tokenizer_spm_8k_en_fr_audio.model" );
+                paths.push_back( program_path + "stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model" );
+            }
             for ( auto & path : paths ) {
                 if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
                     tokenizer_filepath = path;
@@ -223,13 +241,28 @@ int main(int argc, char *argv[]) {
     std::string mimi_filepath = stt_path + stt_config.mimi_name;
     if ( access( mimi_filepath.c_str(), F_OK | R_OK ) != 0 ) {
         bool found = false;
-        // the file is the same for all models, it can be at a shared location
+        // the file is the same for all models
         std::vector<std::string> paths = {
-            "kyutai/mimi-pytorch-e351c8d8@125.safetensors",
-            "../kyutai/mimi-pytorch-e351c8d8@125.safetensors",
-            program_path + "kyutai/mimi-pytorch-e351c8d8@125.safetensors",
-            program_path + "../kyutai/mimi-pytorch-e351c8d8@125.safetensors",
+            "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors",
+            "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors",
+            "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors",
+            "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors",
+            "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors",
         };
+        if ( model_root.size() ) {
+            paths.push_back( model_root + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( model_root + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( model_root + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( model_root + "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( model_root + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
+        }
+        if ( program_path.size() ) {
+            paths.push_back( program_path + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( program_path + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( program_path + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( program_path + "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( program_path + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
+        }
         for ( auto & path : paths ) {
             if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
                 mimi_filepath = path;

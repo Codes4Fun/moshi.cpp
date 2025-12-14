@@ -1,6 +1,9 @@
 #pragma once
 
+#include <sys/stat.h>
+
 static void list_devices() {
+    ggml_backend_load_all();
     auto dev_count = ggml_backend_dev_count();
     fprintf( stderr, "available devices:\n" );
     for (size_t i = 0; i < dev_count; i++) {
@@ -102,4 +105,42 @@ int find_file(
 
     return -1;
 }
+
+
+void check_arg_path( std::string & path, bool & found_file, bool & found_dir ) {
+    found_file = false;
+    found_dir = false;
+
+    if ( access( path.c_str(), F_OK | R_OK ) != 0 ) {
+        return;
+    }
+
+    if ( path.ends_with("/") | path.ends_with("\\") ) {
+        found_dir = true;
+        return;
+    }
+
+    struct stat stats;
+    if ( stat( path.c_str(), &stats ) != 0 ) {
+        fprintf( stderr, "error: failed to stat %s\n", path.c_str() );
+        exit(1);
+    }
+
+    found_dir = S_ISDIR(stats.st_mode);
+    if ( ! found_dir ) {
+        if ( is_abs_or_rel( path ) ) {
+            fprintf( stderr, "error: failed to find file path: \"%s\"\n", path.c_str() );
+            exit(1);
+        }
+        found_file = true;
+    }
+}
+
+void ensure_path( std::string & path ) {
+    auto path_size = path.size();
+    if ( path_size > 1 && path[path_size - 1] != '/' ) {
+        path += "/";
+    }
+}
+
 

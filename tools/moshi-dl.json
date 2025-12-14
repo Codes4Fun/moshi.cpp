@@ -1,0 +1,121 @@
+[
+    [
+      "host", "path", "revision", "hidden",
+      "defaults", "extras", "other"
+    ],
+
+
+    [ "https://huggingface.co",
+      "kyutai/tts-1.6b-en_fr",
+      "f65439609986c392cb12df63938abcc550c3fb15",
+      false, [
+    [   "config.json", 2423,
+        "e7afbbeb50bab1dbe7c95b58e6913fe7a72f9aa9",
+        "fa750c09900257f65350444bc6ff4ddbdfe8a7023f4c6428b99567e1618ffdb1" ],
+    [   "dsm_tts_1e68beda@240.safetensors", 3683719712,
+        "726ddadd90a080c89cbc6b217745296ef32d8e25666d30f81a09e8ae5c9e0f0c",
+        "726ddadd90a080c89cbc6b217745296ef32d8e25666d30f81a09e8ae5c9e0f0c" ],
+    [   "tokenizer-e351c8d8-checkpoint125.safetensors", 384644900,
+        "09b782f0629851a271227fb9d36db65c041790365f11bbe5d3d59369cf863f50",
+        "09b782f0629851a271227fb9d36db65c041790365f11bbe5d3d59369cf863f50" ],
+    [   "tokenizer_spm_8k_en_fr_audio.model", 120378,
+        "cd87dd5d17169151782ac700280ec057e5d658a9afbe238a048ea5ff318cce69",
+        "cd87dd5d17169151782ac700280ec057e5d658a9afbe238a048ea5ff318cce69" ]
+    ], [], [
+    [   "README.md", 3918,
+        "174043190ed90ac503b2001ab9ef23b5e178de01",
+        "178c71c6a02db10030a3e9b690a2ac014de433c89b5a319146b4927f965a4c4a" ]
+    ] ],
+
+
+    [ "https://huggingface.co",
+      "kyutai/stt-1b-en_fr-candle",
+      "095e38f6242006a93c2541149b181988397f5c7c",
+      false, [
+    [   "config.json", 1315,
+        "c698092ef56a92813100a27f3b91f5808ac52f0f",
+        "a3f1c6f7a39fca1fb1bbff68eaabc560b8037d2cdc68aa1f489859949a4223de" ],
+    [   "model.safetensors", 1978522200,
+        "49caaace9011c7e9c3b860f5ca6cd3f3ed6f7f6e",
+        "b9e97c53229dce728d65c76bfa892f7b563c69d671899f0ebc6518582dddec6f" ]
+    ], [], [
+    [   "README.md", 3571,
+        "72f261fafd38a88c2b3f4cef6e9e838f1995d0a9",
+        "2a406d03132fd49b4f15439426f809d5a75dbe964661f8b0a3be1bf7962ffb5e" ],
+    [   "mimi-pytorch-e351c8d8@125.safetensors", 384644900,
+        "c8d5e4cd18a5c1ce05bb89d81144a46cf1b9076c",
+        "09b782f0629851a271227fb9d36db65c041790365f11bbe5d3d59369cf863f50" ],
+    [   "tokenizer_en_fr_audio_8000.model", 120378,
+        "2a8e979f5250cdb8848907b5e6a79431d6e6dedc",
+        "cd87dd5d17169151782ac700280ec057e5d658a9afbe238a048ea5ff318cce69" ]
+    ] ],
+
+
+    [ "https://huggingface.co",
+      "kyutai/tts-0.75b-en-public",
+      "816a8498066d454249a08d10ed614bda5276be0e",
+      false, [], [
+    [   "config.json", 1549,
+        "4c22d6682d77215de37139c3efbf934bdbcad061",
+        "e223561b96b7310626c9164518541918d8315a03f7db0dfdab274260d720aa24" ],
+    [   "dsm_tts_d6ef30c7@1000.safetensors", 1560040168,
+        "65cc11c1055d14534962523587a114fb4340c044",
+        "ee4342f0fd9bd244a1d540993beadaf02dcb8116b376fa91b28f4b2568f3f571" ]
+    ], [
+    [   "README.md", 5356,
+        "5b46c386fd5e81edd9e7679868db5e80a8ff9805",
+        "b33705743310163790aa017e626eaa1a27b42daef65d0316b170bafba9131e42" ],
+    [   "tokenizer-e351c8d8-checkpoint125.safetensors", 384644900,
+        "c8d5e4cd18a5c1ce05bb89d81144a46cf1b9076c",
+        "09b782f0629851a271227fb9d36db65c041790365f11bbe5d3d59369cf863f50" ],
+    [   "tokenizer_spm_8k_en_fr_audio.model", 120378,
+        "2a8e979f5250cdb8848907b5e6a79431d6e6dedc",
+        "cd87dd5d17169151782ac700280ec057e5d658a9afbe238a048ea5ff318cce69" ]
+    ] ],
+
+
+    [ "https://huggingface.co",
+      "kyutai/stt-2.6b-en",
+      "a07aec56d22be5589cd0bc8709c75b6cf3e3039d",
+      false, [], [
+    [   "config.json", 1257,
+        "cb670551e4f81233fa9f60e025f9101e14b7bc88",
+        "b79ea52a30329887a2d0ce2dd5473a63fc5083e441e7986f64f01050c06239c9" ],
+    [   "model.safetensors", 5234275128,
+        "9b68cd59de6c20acf683281b53999639d442beab",
+        "2471add7da1fdb2d5dc4561e88a9069376333d992760d55d29d1db46c52849b2" ],
+    [   "tokenizer_en_audio_4000.model", 59339,
+        "1820a7cbb15efc6a33dd365113c07e3df9d28d80",
+        "d461765ae179566678c93091c5fa6f2984c31bbe990bf1aa62d92c64d91bc3f6" ]
+    ], [
+    [   "README.md", 3782,
+        "e201a9359812bf30ba1279688afc59d39a2f9164",
+        "6a93b7d998b32cb65f07e8948508004421042f100130c3572de13af5cab9e4f9" ],
+    [   "mimi-pytorch-e351c8d8@125.safetensors", 384644900,
+        "c8d5e4cd18a5c1ce05bb89d81144a46cf1b9076c",
+        "09b782f0629851a271227fb9d36db65c041790365f11bbe5d3d59369cf863f50" ]
+    ] ],
+
+
+    [ "https://huggingface.co",
+      "kyutai/stt-1b-en_fr",
+      "40b03403247f4adc9b664bc1cbdff78a82d31085",
+      true, [
+    [   "config.json", 1261,
+        "6e2c7ab6ce3e2ed2ac9f564e2113cf6441f37d36",
+        "5e6aee8007000d844152932184fb7c7112d73cb9a4be562a313b6fa2b89a68f9" ],
+    [   "model.safetensors", 1978423520,
+        "7305988194dddd20abe444e36265ce90ad055120",
+        "8f6e244d44baf63c6fa3587d25a4e8d3627ecbafe177cf34a736e697bb725116" ]
+    ], [], [
+    [   "README.md", 3791,
+        "323c16b9d1d2841074199a28deea0e6b255ef933",
+        "095cb8ad34f4049d6c5f4116c135cd25706bb30325047480d4f66e485b05c037" ],
+    [   "mimi-pytorch-e351c8d8@125.safetensors", 384644900,
+        "c8d5e4cd18a5c1ce05bb89d81144a46cf1b9076c",
+        "09b782f0629851a271227fb9d36db65c041790365f11bbe5d3d59369cf863f50" ],
+    [   "tokenizer_en_fr_audio_8000.model", 120378,
+        "2a8e979f5250cdb8848907b5e6a79431d6e6dedc",
+        "cd87dd5d17169151782ac700280ec057e5d658a9afbe238a048ea5ff318cce69" ]
+    ] ]
+]

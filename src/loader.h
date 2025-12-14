@@ -36,7 +36,6 @@ class WeightLoader {
 
 private:
     WeightLoader(SafeTensorFile * stf, ScratchContext * scratch, ggml_backend * backend = NULL) {
-        assert( !scratch->backend ); // only cpu backends supported
         this->stf = stf;
         this->scratch = scratch;
         this->backend = backend;

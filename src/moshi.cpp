@@ -44,6 +44,7 @@
 
 struct moshi_context_t {
     ggml_backend * backend;
+    ggml_backend * backend_cpu;
     own_ptr<ScratchContext> scratch_cpu;
     own_ptr<ScratchContext> scratch;
 };
@@ -74,14 +75,36 @@ struct mimi_decode_context_t {
 
 // MARK: Moshi Context
 
+static bool ggml_backends_loaded = false;
+
 static void moshi_alloc( moshi_context_t * moshi, ggml_backend * backend ) {
     assert( backend );
+
+    auto dev = ggml_backend_get_device( backend );
+    ggml_backend * backend_cpu;
+    if ( ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_CPU ) {
+        backend_cpu = backend;
+    } else {
+        backend_cpu = ggml_backend_init_by_type( GGML_BACKEND_DEVICE_TYPE_CPU, NULL );
+    }
+    if ( ! backend_cpu ) {
+        fprintf( stderr, "error: failed to initialize cpu device.\n" );
+        exit(1);
+    }
+    auto dev_name = ggml_backend_dev_name( dev );
+    printf( "using device: \"%s\"\n", dev_name );
+
+    moshi->backend_cpu = backend_cpu;
     moshi->backend = backend;
-    moshi->scratch_cpu = new ScratchContext( 256 );
+    moshi->scratch_cpu = new ScratchContext( 256, backend_cpu );
     moshi->scratch = new ScratchContext( 256, backend );
 }
 
 static void moshi_alloc( moshi_context_t * moshi, const char * device ) {
+    if ( ! ggml_backends_loaded ) {
+        ggml_backend_load_all();
+        ggml_backends_loaded = true;
+    }
     ggml_backend * backend;
     if ( device ) {
         backend = ggml_backend_init_by_name( device, NULL );
@@ -89,12 +112,9 @@ static void moshi_alloc( moshi_context_t * moshi, const char * device ) {
         backend = ggml_backend_init_best();
     }
     if ( ! backend ) {
-        fprintf( stderr, "failed to initialize device\n" );
+        fprintf( stderr, "error: failed to initialize device.\n" );
         exit(1);
     }
-    auto dev = ggml_backend_get_device( backend );
-    auto dev_name = ggml_backend_dev_name( dev );
-    printf( "using device: \"%s\"\n", dev_name );
     moshi_alloc( moshi, backend );
 }
 

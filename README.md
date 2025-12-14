@@ -30,24 +30,24 @@ I did create an optimization that does not exist in moshi, and that is instead o
 
 ## Building
 
-The library depends on SentencePiece (tested with 0.2.0) and GGML.
-
-The tools add additional dependences FFmpeg (8+) and SDL2.
-
-Builds have only been tested under Ubuntu and Windows MSYS2 MinGW x64.
+The library depends on SentencePiece (tested with 0.2.0) and GGML. The tools add additional dependences FFmpeg (8+) and SDL2. Builds have only been tested under Ubuntu and Windows MSYS2 MinGW x64.
 
 SentencePiece has only been tested using static linking, either built from source or binaries from:
 * https://github.com/google/sentencepiece/releases/tag/v0.2.0
+
 I found for MSYS2 MinGW x64, I've had to build it myself because of toolchain differences that show up as undefined references.
 
-GGML can be built from:
+GGML can be built from my modified version that works with vulkan:
 * https://github.com/Codes4Fun/ggml
+
 or the offical repository:
 * https://github.com/ggml-org/ggml
-My custom version of GGML will get vulkan working.
+
+Currently setup to build against GGML_BACKEND_DL.
 
 For FFmpeg, older versions of Ubutnu will not have the latest, it can be built from source or binaries from:
 * https://github.com/BtbN/FFmpeg-Builds/releases
+
 MSYS2 MinGW x64 has the latest and can be installed via:
 ```
 pacman -S mingw-w64-x86_64-ffmpeg
@@ -120,3 +120,13 @@ kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors
 kyutai/stt-1b-en_fr-candle/model.safetensors
 kyutai/stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model
 ```
+
+kyutai/tts-0.75b-en-public
+
+
+https://huggingface.co/api/models/kyutai/tts-0.75b-en-public/tree/main
+
+https://huggingface.co/api/models/microsoft/VibeVoice-Realtime-0.5B/tree/main
+
+
+

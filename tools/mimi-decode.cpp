@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
     const char * device = NULL;
     const char * input_filename = NULL;
     const char * output_filename = NULL;
-    std::string model_filename = "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors";
+    std::string mimi_filepath = "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors";
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
                 fprintf( stderr, "error: \"%s\" requires filepath to model\n", argv[i] );
                 exit(1);
             }
-            model_filename = argv[++i];
+            mimi_filepath = argv[++i];
             continue;
         }
         if (arg == "-l" || arg == "--list-devices") {
@@ -69,19 +69,63 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
     }
+
     if (!input_filename || !output_filename) {
         print_usage(argv[0]);
     }
 
-    if ( access( model_filename.c_str(), F_OK | R_OK ) != 0 ) {
-        if ( is_abs_or_rel( model_filename ) ) {
-            fprintf( stderr, "error: failed to find model from path: \"%s\"\n", model_filename.c_str() );
-            exit(1);
-        }
+    bool found = false;
+    bool found_dir = false;
+    check_arg_path( mimi_filepath, found, found_dir );
+
+    if ( ! found ) {
+        const char * model_cache = getenv("MODEL_CACHE");
+        std::string model_root = model_cache? model_cache : "";
+
         std::string program_path = get_program_path(argv[0]);
-        model_filename = program_path + "/" + model_filename;
-        if ( access( model_filename.c_str(), F_OK | R_OK ) != 0 ) {
-            fprintf( stderr, "error: failed to find model.\n" );
+
+        // the file is the same for all models
+        std::vector<std::string> paths = {
+            "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors",
+            "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors",
+            "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors",
+            "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors",
+            "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors",
+        };
+        if ( found_dir ) {
+            ensure_path( mimi_filepath );
+            paths.push_back( mimi_filepath + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( mimi_filepath + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( mimi_filepath + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( mimi_filepath + "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( mimi_filepath + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
+        }
+        if ( model_root.size() ) {
+            ensure_path( model_root );
+            paths.push_back( model_root + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( model_root + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( model_root + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( model_root + "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( model_root + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
+        }
+        if ( program_path.size() ) {
+            ensure_path( program_path );
+            paths.push_back( program_path + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( program_path + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( program_path + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( program_path + "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( program_path + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
+        }
+        for ( auto & path : paths ) {
+            if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
+                mimi_filepath = path;
+                found = true;
+                printf("using %s\n", mimi_filepath.c_str());
+                break;
+            }
+        }
+        if ( ! found ) {
+            fprintf( stderr, "error: missing mimi file \"%s\"\n", mimi_filepath.c_str() );
             exit(1);
         }
     }
@@ -106,7 +150,9 @@ int main(int argc, char *argv[]) {
 
     // decoder
     unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
-    unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, model_filename.c_str(), n_q );
+    printf("loading %s\n", mimi_filepath.c_str());
+    unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), n_q );
+    printf("done loading\n");
     unref_ptr<mimi_decode_context_t> decoder = mimi_decode_alloc_context( codec );
     int frame_size = mimi_frame_size( codec );
 

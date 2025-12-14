@@ -22,6 +22,7 @@ static void print_usage(const char * program) {
     fprintf( stderr, "\nplays using sdl if output not specified.\n" );
     fprintf( stderr, "\noption(s):\n" );
     fprintf( stderr, "  -h,       --help             show this help message\n" );
+    fprintf( stderr, "  -m PATH,  --model-root PATH  path to where all models are stored.\n" );
     fprintf( stderr, "  -tm PATH, --tts-model PATH   path to tts model.\n" );
     fprintf( stderr, "  -l,       --list-devices     list hardware and exit.\n" );
     fprintf( stderr, "  -d NAME,  --device NAME      use named hardware.\n" );
@@ -87,6 +88,8 @@ int main(int argc, char *argv[]) {
     const char * device = NULL;
     const char * input_filename = NULL;
     const char * output_filename = NULL;
+    const char * model_cache = getenv("MODEL_CACHE");
+    std::string model_root = model_cache? model_cache : "";
 #ifdef DEFAULT_BIG
     std::string tts_path = "kyutai/tts-1.6b-en_fr";
 #else
@@ -106,6 +109,14 @@ int main(int argc, char *argv[]) {
         std::string arg = argv[i];
         if (arg == "-h" || arg == "--help") {
             print_usage(argv[0]);
+        }
+        if (arg == "-m" || arg == "--model-root") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires path to models\n", argv[i] );
+                exit(1);
+            }
+            model_root = argv[++i];
+            continue;
         }
         if (arg == "-tm" || arg == "--tts_model") {
             if (i + 1 >= argc) {
@@ -193,11 +204,9 @@ int main(int argc, char *argv[]) {
     }
 
     std::string program_path = get_program_path(argv[0]);
-
-    auto tts_path_size = tts_path.size();
-    if ( tts_path_size > 1 && tts_path[tts_path_size - 1] != '/' ) {
-        tts_path += "/";
-    }
+    ensure_path( program_path );
+    ensure_path( model_root );
+    ensure_path( tts_path );
 
     std::string tts_config_path = tts_path + "config.json";
     if ( access( tts_config_path.c_str(), F_OK | R_OK ) != 0 ) {
@@ -206,15 +215,15 @@ int main(int argc, char *argv[]) {
             fprintf( stderr, "error: failed to find config.json from path: \"%s\"\n", tts_path.c_str() );
             exit(1);
         }
-        std::vector<std::string> paths = {
-            program_path + tts_path,
-            "../" + tts_path,
-            program_path + "../" + tts_path,
-            "kyutai/" + tts_path,
-            program_path + "kyutai/" + tts_path,
-            "../kyutai/" + tts_path,
-            program_path + "../kyutai/" + tts_path,
-        };
+        std::vector<std::string> paths = { "kyutai/" + tts_path };
+        if ( model_root.size() ) {
+            paths.push_back( model_root + tts_path );
+            paths.push_back( model_root + "kyutai/" + tts_path );
+        }
+        if ( program_path.size() ) {
+            paths.push_back( program_path + tts_path );
+            paths.push_back( program_path + "kyutai/" + tts_path );
+        }
         bool found = false;
         for ( auto & path : paths ) {
             tts_config_path = path + "config.json";
@@ -250,13 +259,22 @@ int main(int argc, char *argv[]) {
         if ( tts_config.tokenizer_name == "tokenizer_spm_8k_en_fr_audio.model"
           || tts_config.tokenizer_name == "tokenizer_en_fr_audio_8000.model"
         ) {
-            // the file is the same for all models, it can be at a shared location
+            // the file is the same for several models
             std::vector<std::string> paths = {
-                "kyutai/tokenizer_spm_8k_en_fr_audio.model",
-                "../kyutai/tokenizer_spm_8k_en_fr_audio.model",
-                program_path + "kyutai/tokenizer_spm_8k_en_fr_audio.model",
-                program_path + "../kyutai/tokenizer_spm_8k_en_fr_audio.model",
+                "kyutai/tts-1.6b-en_fr/tokenizer_spm_8k_en_fr_audio.model",
+                "kyutai/tts-0.75b-en-public/tokenizer_spm_8k_en_fr_audio.model",
+                "stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model"
             };
+            if ( model_root.size() ) {
+                paths.push_back( model_root + "kyutai/tts-1.6b-en_fr/tokenizer_spm_8k_en_fr_audio.model" );
+                paths.push_back( model_root + "kyutai/tts-0.75b-en-public/tokenizer_spm_8k_en_fr_audio.model" );
+                paths.push_back( model_root + "stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model" );
+            }
+            if ( program_path.size() ) {
+                paths.push_back( program_path + "kyutai/tts-1.6b-en_fr/tokenizer_spm_8k_en_fr_audio.model" );
+                paths.push_back( program_path + "kyutai/tts-0.75b-en-public/tokenizer_spm_8k_en_fr_audio.model" );
+                paths.push_back( program_path + "stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model" );
+            }
             for ( auto & path : paths ) {
                 if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
                     tokenizer_filepath = path;
@@ -280,13 +298,28 @@ int main(int argc, char *argv[]) {
     std::string mimi_filepath = tts_path + tts_config.mimi_name;
     if ( access( mimi_filepath.c_str(), F_OK | R_OK ) != 0 ) {
         bool found = false;
-        // the file is the same for all models, it can be at a shared location
+        // the file is the same for all models
         std::vector<std::string> paths = {
-            "kyutai/mimi-pytorch-e351c8d8@125.safetensors",
-            "../kyutai/mimi-pytorch-e351c8d8@125.safetensors",
-            program_path + "kyutai/mimi-pytorch-e351c8d8@125.safetensors",
-            program_path + "../kyutai/mimi-pytorch-e351c8d8@125.safetensors",
+            "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors",
+            "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors",
+            "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors",
+            "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors",
+            "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors",
         };
+        if ( model_root.size() ) {
+            paths.push_back( model_root + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( model_root + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( model_root + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( model_root + "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( model_root + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
+        }
+        if ( program_path.size() ) {
+            paths.push_back( program_path + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( program_path + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
+            paths.push_back( program_path + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( program_path + "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( program_path + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
+        }
         for ( auto & path : paths ) {
             if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
                 mimi_filepath = path;
@@ -327,11 +360,15 @@ int main(int argc, char *argv[]) {
             fprintf( stderr, "error: failed to find or access voice file: \"%s\"\n", voice_filename.c_str() );
             exit(1);
         }
-        std::vector<std::string> paths = {
-            "../" + voice_filename,
-            program_path + voice_filename,
-            program_path + "../" + voice_filename,
-        };
+        std::vector<std::string> paths = { "kyutai/tts-voices/" + voice_filename };
+        if ( model_root.size() ) {
+            paths.push_back( model_root + voice_filename );
+            paths.push_back( model_root + "kyutai/tts-voices/" + voice_filename );
+        }
+        if ( program_path.size() ) {
+            paths.push_back( program_path + voice_filename );
+            paths.push_back( program_path + "kyutai/tts-voices/" + voice_filename );
+        }
         bool found = false;
         for ( auto & path : paths ) {
             if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {

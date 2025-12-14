@@ -291,7 +291,9 @@ class ScratchContext {
             constants32.push_back({ tensor, i32 });
             return tensor;
         }
-        return ggml_new_i32( ctx, i32 );
+        assert(false);
+        //return ggml_new_i32( ctx, i32 );
+        return NULL;
     }
 
     ggml_tensor * constant( float f32 ) {
@@ -300,7 +302,9 @@ class ScratchContext {
             constants32.push_back({ tensor, *(int32_t*)&f32 });
             return tensor;
         }
-        return ggml_new_f32( ctx, f32 );
+        assert(false);
+        //return ggml_new_f32( ctx, f32 );
+        return NULL;
     }
 
     ggml_tensor * fill( int count, float value ) {
@@ -586,7 +590,8 @@ class ScratchContext {
             constants32.clear();
             loaders.clear();
         } else {
-            if (name.size()) {CAPTURE(name, gf);}
+            assert(false);
+            /*if (name.size()) {CAPTURE(name, gf);}
             ggml_graph_compute_with_ctx(ctx, gf, 1);
             for (auto copy : copies) {
                 size_t nbytes = ggml_nbytes(copy.src);
@@ -598,7 +603,7 @@ class ScratchContext {
                 ggml_backend_tensor_set( copy.dst, copy.src->data, 0, nbytes );
             }
             backend_copies.clear();
-            copies.clear();
+            copies.clear();*/
         }
         ggml_reset(ctx);
         gf = NULL;

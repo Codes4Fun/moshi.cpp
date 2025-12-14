@@ -33,34 +33,13 @@ find_library(GGML_BASE_LIBRARY
     DOC "GGML library"
 )
 
-find_library(GGML_CPU_LIBRARY
-    NAMES ggml-cpu
-    PATHS ${GGML_LIBRARY_DIR}
-    NO_DEFAULT_PATH # Only search the user-provided path
-    DOC "GGML library"
-)
-
-find_library(GGML_CUDA_LIBRARY
-    NAMES ggml-cuda
-    PATHS ${GGML_LIBRARY_DIR} ${GGML_LIBRARY_DIR}/ggml-cuda
-    NO_DEFAULT_PATH # Only search the user-provided path
-    DOC "GGML library"
-)
-
-find_library(GGML_VULKAN_LIBRARY
-    NAMES ggml-vulkan
-    PATHS ${GGML_LIBRARY_DIR} ${GGML_LIBRARY_DIR}/ggml-vulkan
-    NO_DEFAULT_PATH # Only search the user-provided path
-    DOC "GGML library"
-)
-
 message(STATUS "DEBUG: find_library for GGML_LIBRARY found: ${GGML_LIBRARY}")
 
 # Handle the REQUIRED and QUIET arguments to find_package()
 # and set GGML_FOUND to TRUE if all listed variables are TRUE.
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(GGML
-    REQUIRED_VARS GGML_LIBRARY GGML_BASE_LIBRARY GGML_CPU_LIBRARY GGML_INCLUDE_DIR
+    REQUIRED_VARS GGML_LIBRARY GGML_BASE_LIBRARY GGML_INCLUDE_DIR
     FAIL_MESSAGE "Could NOT find GGML. Set GGML_INCLUDE_DIR and GGML_LIBRARY_DIR."
 )
 
@@ -69,6 +48,6 @@ mark_as_advanced(GGML_INCLUDE_DIR GGML_LIBRARY)
 
 # Set the output variables for the user of this module.
 if(GGML_FOUND)
-    set(GGML_LIBRARIES ${GGML_LIBRARY} ${GGML_BASE_LIBRARY} ${GGML_CPU_LIBRARY} ${GGML_CUDA_LIBRARY} ${GGML_VULKAN_LIBRARY})
+    set(GGML_LIBRARIES ${GGML_LIBRARY} ${GGML_BASE_LIBRARY})
     set(GGML_INCLUDE_DIRS ${GGML_INCLUDE_DIR})
 endif()
