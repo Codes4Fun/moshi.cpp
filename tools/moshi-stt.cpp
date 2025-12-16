@@ -4,11 +4,8 @@
 #include <math.h>
 #include <assert.h>
 #include <iostream> // tts
-#include <pthread.h>
 
 #include <limits.h>
-#include <unistd.h>
-#include <libgen.h>
 
 #include <moshi/moshi.h>
 #include "ffmpeg_helpers.h"
@@ -140,8 +137,8 @@ int main(int argc, char *argv[]) {
 
     const char * ext = NULL;
     if ( input_filename ) {
-        if ( access( input_filename, F_OK | R_OK ) != 0 ) {
-            fprintf( stderr, "error: failed to find or access input file: \"%s\"\n", input_filename );
+        if ( ! file_exists( input_filename ) ) {
+            fprintf( stderr, "error: failed to find input file: \"%s\"\n", input_filename );
             exit(1);
         }
         ext = get_ext( input_filename );
@@ -159,7 +156,7 @@ int main(int argc, char *argv[]) {
     ensure_path( stt_path );
 
     std::string stt_config_path = stt_path + "config.json";
-    if ( access( stt_config_path.c_str(), F_OK | R_OK ) != 0 ) {
+    if ( ! file_exists( stt_config_path.c_str() ) ) {
         // is path specific (aka absolute or relative)
         if ( is_abs_or_rel( stt_config_path ) ) {
             fprintf( stderr, "error: failed to find config.json from path: \"%s\"\n", stt_path.c_str() );
@@ -177,7 +174,7 @@ int main(int argc, char *argv[]) {
         bool found = false;
         for ( auto & path : paths ) {
             stt_config_path = path + "config.json";
-            if ( access( stt_config_path.c_str(), F_OK | R_OK ) == 0 ) {
+            if ( file_exists( stt_config_path.c_str() ) ) {
                 stt_path = path;
                 found = true;
                 break;
@@ -197,7 +194,7 @@ int main(int argc, char *argv[]) {
 
     // find/check files in the config
     std::string tokenizer_filepath = stt_path + stt_config.tokenizer_name;
-    if ( access( tokenizer_filepath.c_str(), F_OK | R_OK ) != 0 ) {
+    if ( ! file_exists( tokenizer_filepath.c_str() ) ) {
         bool found = false;
         if ( stt_config.tokenizer_name == "tokenizer_spm_8k_en_fr_audio.model"
           || stt_config.tokenizer_name == "tokenizer_en_fr_audio_8000.model"
@@ -219,7 +216,7 @@ int main(int argc, char *argv[]) {
                 paths.push_back( program_path + "stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model" );
             }
             for ( auto & path : paths ) {
-                if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
+                if ( file_exists( path.c_str() ) ) {
                     tokenizer_filepath = path;
                     found = true;
                     break;
@@ -233,13 +230,13 @@ int main(int argc, char *argv[]) {
     }
 
     std::string moshi_filepath = stt_path + stt_config.moshi_name;
-    if ( access( moshi_filepath.c_str(), F_OK | R_OK ) != 0 ) {
+    if ( ! file_exists( moshi_filepath.c_str() ) ) {
         fprintf( stderr, "error: missing moshi file \"%s\"\n", moshi_filepath.c_str() );
         exit(1);
     }
 
     std::string mimi_filepath = stt_path + stt_config.mimi_name;
-    if ( access( mimi_filepath.c_str(), F_OK | R_OK ) != 0 ) {
+    if ( ! file_exists( mimi_filepath.c_str() ) ) {
         bool found = false;
         // the file is the same for all models
         std::vector<std::string> paths = {
@@ -264,7 +261,7 @@ int main(int argc, char *argv[]) {
             paths.push_back( program_path + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
         }
         for ( auto & path : paths ) {
-            if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
+            if ( file_exists( path.c_str() ) ) {
                 mimi_filepath = path;
                 found = true;
                 break;
@@ -329,20 +326,18 @@ int main(int argc, char *argv[]) {
     // maybe ordered from dependency and quickest to fail
 
     // tokenizer
-    sentencepiece::SentencePieceProcessor sp;
-    sp.Load( tokenizer_filepath );
+    unref_ptr<tokenizer_t> stt_tok = tokenizer_alloc( tokenizer_filepath.c_str() );
 
     // codec
-    unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), stt_config.n_q );
+    unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), (int) stt_config.n_q );
     float frame_rate = mimi_frame_rate( codec );
     int frame_size = mimi_frame_size( codec );
-    int stt_frame_delay = stt_config.stt_config.audio_delay_seconds * frame_rate;
+    int stt_frame_delay = (int)( stt_config.stt_config.audio_delay_seconds * frame_rate );
 
     // input (decoder/sdl)
     AVChannelLayout mono;
     av_channel_layout_default( &mono, 1 );
     own_ptr<Resampler> resampler;
-    SDL_AudioDeviceID cap_dev;
     AudioState input_state;
 #ifdef SDL_OUT
     AudioState output_state;
@@ -489,7 +484,7 @@ int main(int argc, char *argv[]) {
                 fprintf(out, "%f", vad);
             }
             if ( text_token != 0 ) {
-                auto piece = sp.IdToPiece(text_token);
+                auto piece = tokenizer_id_to_piece( stt_tok, text_token );
                 std::string _text;
                 for ( size_t ci = 0; ci < piece.size(); ci++ ) {
                     if ( piece.c_str()[ci] == -30 ) {
@@ -514,7 +509,7 @@ int main(int argc, char *argv[]) {
             if ( text_token != 0 && text_token != 3 ) {
                 if ( last_print_was_vad )
                     start = frame_count - stt_frame_delay;
-                auto piece = sp.IdToPiece(text_token);
+                auto piece = tokenizer_id_to_piece( stt_tok, text_token );
                 std::string _text;
                 for ( size_t ci = 0; ci < piece.size(); ci++ ) {
                     if ( piece.c_str()[ci] == -30 ) {
@@ -536,17 +531,17 @@ int main(int argc, char *argv[]) {
                     if ( acc_text.size() ) {
                         //fprintf(out, " [end of turn detected]\n");
                         int64_t end = frame_count - stt_frame_delay;
-                        int64_t start_ms = start * 1000 / frame_rate;
-                        int64_t end_ms = end * 1000 / frame_rate;
+                        int64_t start_ms = (int64_t)( start * 1000 / frame_rate );
+                        int64_t end_ms = (int64_t)( end * 1000 / frame_rate );
                         //int sh, sm, ss, sms, eh, em, es, ems;
-                        int sh =  start_ms / 1000 / 60 / 60;
-                        int sm =  start_ms / 1000 / 60 % 60;
-                        int ss =  start_ms / 1000 % 60;
-                        int sms = start_ms % 1000;
-                        int eh =  end_ms / 1000 / 60 / 60;
-                        int em =  end_ms / 1000 / 60 % 60;
-                        int es =  end_ms / 1000 % 60;
-                        int ems = end_ms % 1000;
+                        int sh =  (int)( start_ms / 1000 / 60 / 60 );
+                        int sm =  (int)( start_ms / 1000 / 60 % 60 );
+                        int ss =  (int)( start_ms / 1000 % 60 );
+                        int sms = (int)( start_ms % 1000 );
+                        int eh =  (int)( end_ms / 1000 / 60 / 60 );
+                        int em =  (int)( end_ms / 1000 / 60 % 60 );
+                        int es =  (int)( end_ms / 1000 % 60 );
+                        int ems = (int)( end_ms % 1000 );
                         fprintf(out, "%02d:%02d:%02d.%03d --> %02d:%02d:%02d.%03d\n",
                             sh, sm, ss, sms, eh, em, es, ems
                         );
@@ -564,7 +559,7 @@ int main(int argc, char *argv[]) {
                 last_print_was_vad = true;
             }
             if ( text_token != 0 && text_token != 3 ) {
-                auto piece = sp.IdToPiece(text_token);
+                auto piece = tokenizer_id_to_piece( stt_tok, text_token );
                 std::string _text;
                 for ( size_t ci = 0; ci < piece.size(); ci++ ) {
                     if ( piece.c_str()[ci] == -30 ) {
@@ -586,7 +581,7 @@ int main(int argc, char *argv[]) {
                 }
             }
             if ( text_token != 0 && text_token != 3 ) {
-                auto piece = sp.IdToPiece(text_token);
+                auto piece = tokenizer_id_to_piece( stt_tok, text_token );
                 std::string _text;
                 for ( size_t ci = 0; ci < piece.size(); ci++ ) {
                     if ( piece.c_str()[ci] == -30 ) {

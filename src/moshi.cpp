@@ -4,6 +4,7 @@
 
 #include <iostream>
 
+#define MOSHI_BUILD
 #include <moshi/moshi.h>
 
 // for src/context.h
@@ -71,6 +72,26 @@ struct mimi_decode_context_t {
     ggml_tensor * device_frame;
     std::vector<int> tokens;
     std::vector<float> frame;
+};
+
+struct tokenizer_t {
+    sentencepiece::SentencePieceProcessor sp;
+    int padding_between = 1;
+    bool insert_bos = true;
+
+    std::string tail;
+
+    enum {
+        FIND_START,
+        FIND_END,
+        CHECK_WORD,
+        TOKENIZE,
+    } state = FIND_START;
+    int offset = 0, start_offset = 0, end_offset = 0;
+
+    int found_break = 0;
+    float time;
+    std::deque<std::string> words;
 };
 
 // MARK: Moshi Context
@@ -281,7 +302,7 @@ void mimi_decode_receive( mimi_decode_context_t * context, float * frame ) {
 
 // MARK: Voice Condition
 
-void voice_condition( voice_t * voice,
+static void voice_condition( voice_t * voice,
         conditioners_t * cond,
         ggml_tensor * speaker_wavs,
         moshi_context_t * moshi
@@ -326,7 +347,7 @@ void voice_condition( voice_t * voice,
 
     float cross_attention_pos_emb_scale = 1;
     //auto positions = ggml_arange(b_voice_ctx, 0, speaker_wavs_cond->ne[1], 1);
-    auto positions = b_voice_ctx.arange(0, speaker_wavs_cond->ne[1], 1);
+    auto positions = b_voice_ctx.arange(0, (float) speaker_wavs_cond->ne[1], 1);
     auto pos_emb = ggml_timestep_embedding(b_voice_ctx, positions, 2048, 10000);
     auto condition_cross = ggml_add(b_voice_ctx, speaker_wavs_cond, ggml_scale(b_voice_ctx, pos_emb, cross_attention_pos_emb_scale));
 
@@ -355,6 +376,21 @@ void voice_condition( voice_t * voice,
 
 // MARK: Tokenizer
 
+tokenizer_t * tokenizer_alloc( const char * filepath, bool insert_bos ) {
+    auto tok = new tokenizer_t;
+    tok->sp.Load( filepath );
+    tok->insert_bos = insert_bos;
+    return tok;
+}
+
+void unref( tokenizer_t * tok ) {
+    delete tok;
+}
+
+bool tokenizer_empty( tokenizer_t * tok ) {
+    return ! tok->tail.size();
+}
+
 static int tokenizer_tokenize( tokenizer_t * tok, std::string & word, Entry * entry ) {
     const int text_bos_token = 1;
 
@@ -370,7 +406,7 @@ static int tokenizer_tokenize( tokenizer_t * tok, std::string & word, Entry * en
     }
     int padding = 0;
     if ( tok->padding_between > 0 ) {
-        padding = tok->padding_between + tokens.size() - 1;
+        padding = tok->padding_between + (int) tokens.size() - 1;
         if ( padding < 0 )
             padding = 0;
     }
@@ -428,7 +464,7 @@ static int tokenizer_break_time( tokenizer_t * tok ) {
 	char *end;
 	const char *start = s.s + offset;
 	tok->time = (float)strtod(start, &end);
-	offset = (end - start) + offset;
+	offset = (int) (end - start) + offset;
 
     int remaining = s.length - offset;
     if ( remaining < 2 || s.s[offset] != 's' || s.s[offset+1] != '"' )
@@ -520,7 +556,7 @@ int tokenizer_receive( tokenizer_t * tok, Entry * entry ) {
                     break;
                 }
             } else if ( tok->found_break == 3 ) {
-                int front_size = tok->words.front().size();
+                int front_size = (int) tok->words.front().size();
                 if ( front_size > 6 ) {
                     // must have token before break
                     auto word = tok->words.front().substr( 0, front_size - 6 );
@@ -529,8 +565,8 @@ int tokenizer_receive( tokenizer_t * tok, Entry * entry ) {
                     tok->state = tokenizer_t::TOKENIZE;
                     break;
                 }
-                int back_size = tok->words.back().size();
-                int tail = tok->words.back().find( "/>" ) + 2;
+                int back_size = (int) tok->words.back().size();
+                int tail = (int) tok->words.back().find( "/>" ) + 2;
                 std::string word;
                 if ( back_size != tail ) {
                     word = tok->words.back().substr( tail );
@@ -564,6 +600,10 @@ int tokenizer_receive( tokenizer_t * tok, Entry * entry ) {
     }
 
     return 0;
+}
+
+std::string tokenizer_id_to_piece( tokenizer_t * tok, int token ) {
+    return tok->sp.IdToPiece( token );
 }
 
 // MARK: LM

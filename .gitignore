@@ -8,6 +8,7 @@ kyutai/
 *.dll
 *.so
 *.so.*
+*.pdb
 build/
 test
 bin/mimi-decode

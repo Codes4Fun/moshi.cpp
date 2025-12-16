@@ -4,6 +4,8 @@
 
 #include <vector>
 #include <string>
+#include <sstream>
+#include <iomanip>
 
 #include <unistd.h>
 
@@ -123,7 +125,15 @@ int get_models( std::vector<model_t> & models, const char * filename ) {
     return 0;
 }
 
-int get_hash( const char * filepath, std::string & hash ) {
+std::string build_hex_string( int bytes, const unsigned char* buffer ) {
+    std::ostringstream oss;
+    for ( int i = 0; i < bytes; ++i ) {
+        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(buffer[i]);
+    }
+    return oss.str();
+}
+
+int get_hash( const char * filepath, std::string & hash, bool sha256 ) {
     unref_ptr<FILE> f = fopen( filepath, "rb" );
     if ( ! f )
         return -1;
@@ -132,24 +142,38 @@ int get_hash( const char * filepath, std::string & hash ) {
 	auto length = ftell( f );
 	fseek( f, 0, SEEK_SET );
 
-    validate_sha1<1024*1024> cs;
-    cs.init();
+    if ( sha256 ) {
+        validate_sha256<1024*1024> cs;
+        cs.init();
 
-    cs.bytes = snprintf( (char*)cs.buffer, sizeof(cs.buffer), "blob %ld", length ) + 1;
-    cs.update();
+        while( true ) {
+            cs.bytes = fread( cs.buffer, 1, sizeof(cs.buffer), f );
+            if ( ! cs.bytes )
+                break;
+            cs.update();
+        }
 
-    while( true ) {
-        cs.bytes = fread( cs.buffer, 1, sizeof(cs.buffer), f );
-        if ( ! cs.bytes )
-            break;
+        cs.final();
+        hash = build_hex_string( cs.bytes, cs.buffer );
+        printf("%s\n", hash.c_str());
+    } else {
+        validate_sha1<1024*1024> cs;
+        cs.init();
+
+        cs.bytes = snprintf( (char*)cs.buffer, sizeof(cs.buffer), "blob %ld", length ) + 1;
         cs.update();
-    }
 
-    cs.final();
-    for( int i = 0; i < cs.bytes; i++ ) {
-        printf( "%02x", cs.buffer[i] );
+        while( true ) {
+            cs.bytes = fread( cs.buffer, 1, sizeof(cs.buffer), f );
+            if ( ! cs.bytes )
+                break;
+            cs.update();
+        }
+
+        cs.final();
+        hash = build_hex_string( cs.bytes, cs.buffer );
+        printf("%s\n", hash.c_str());
     }
-    printf("\n");
 
     return 0;
 }
@@ -273,35 +297,50 @@ int main(int argc, char *argv[]) {
                 continue;
             if ( target && strcmp( target, model.path.c_str() ) != 0 )
                 continue;
-            printf("%s (%s)\n",
-                model.path.c_str(),
+            printf("(%s)  %s\n",
                 model.hidden? "hidden" :
                 model.defaults.size()? "default" :
-                model.extras.size()? "extra" : "other"
+                model.extras.size()? "extra" : "other",
+                model.path.c_str()
             );
             if ( list_model_only )
                 continue;
             std::string model_path = model_root + model.path + "/";
             for ( auto & file : model.defaults ) {
                 printf( "%s/%s %ld\n", model.path.c_str(), file.filepath.c_str(), file.size );
+                printf( "%s\n", file.oid.c_str() );
                 std::string filepath = model_path + file.filepath;
                 std::string hash;
-                get_hash(filepath.c_str(), hash);
+                get_hash(filepath.c_str(), hash, file.oid.size() != 40);
+                if ( file.oid != hash ) {
+                    fprintf( stderr, "error: %s failed hash\n", filepath.c_str() );
+                    exit(-1);
+                }
             }
             if ( ( target && extra_only ) || extras ) {
                 for ( auto & file : model.extras ) {
                     printf( "%s/%s %ld\n", model.path.c_str(), file.filepath.c_str(), file.size );
+                    printf( "%s\n", file.oid.c_str() );
                     std::string filepath = model_path + file.filepath;
                     std::string hash;
-                    get_hash(filepath.c_str(), hash);
+                    get_hash(filepath.c_str(), hash, file.oid.size() != 40);
+                    if ( file.oid != hash ) {
+                        fprintf( stderr, "error: %s failed hash\n", filepath.c_str() );
+                        exit(-1);
+                    }
                 }
             }
             if ( other ) {
                 for ( auto & file : model.other ) {
                     printf( "%s/%s %ld\n", model.path.c_str(), file.filepath.c_str(), file.size );
+                    printf( "%s\n", file.oid.c_str() );
                     std::string filepath = model_path + file.filepath;
                     std::string hash;
-                    get_hash(filepath.c_str(), hash);
+                    get_hash(filepath.c_str(), hash, file.oid.size() != 40);
+                    if ( file.oid != hash ) {
+                        fprintf( stderr, "error: %s failed hash\n", filepath.c_str() );
+                        exit(-1);
+                    }
                 }
             }
         }

@@ -21,7 +21,7 @@ void save_wav(
     const std::vector<short> &data,
     int sample_rate
 ) {
-    int dataSize = data.size() * 2;
+    int dataSize = (int) data.size() * 2;
     WaveHeader header;
     header.riff = 0x46464952; // "RIFF"
     header.size = dataSize + sizeof(WaveHeader) - 8;
@@ -41,7 +41,7 @@ void save_wav(
         throw std::runtime_error("failed to open file for writing");
     fwrite(&header, sizeof(WaveHeader), 1, f);
     size_t offset = ftell(f);
-    printf("header: %ld / %ld\n", offset, sizeof(WaveHeader));
+    printf("header: %zu / %zu\n", offset, sizeof(WaveHeader));
     fwrite(data.data(), dataSize, 1, f);
     offset = ftell(f);
     //printf("data: %ld / %ld\n", offset, sizeof(WaveHeader) + dataSize);

@@ -317,7 +317,7 @@ void script_to_state(
             }
             int padding = 0;
             if (padding_between > 0) {
-                padding = padding_between + tokens.size() - 1;
+                padding = padding_between + (int) tokens.size() - 1;
                 if (padding < 0) padding = 0;
             }
             state->entries.push_back(Entry(tokens, word, padding));
@@ -620,7 +620,7 @@ bool moshi_lmgen_step(
     auto text_prefixes = lmgen->text_prefixes;
     auto audio_prefixes = lmgen->audio_prefixes;
     //ProfileScope profile(time_lmgen_step_us);
-    int CT = state->cache.size();
+    int CT = (int) state->cache.size();
     int dep_q_1 = lm->dep_q + 1;
 
     auto needed_tokens = lm->num_codebooks - lm->dep_q - 1;

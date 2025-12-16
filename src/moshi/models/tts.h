@@ -95,7 +95,7 @@ moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend, std::string path = "k
     {CAPTURE_GROUP("lm");
     tts->weights->load();}
 
-    tts->mimi = moshi_mimi_alloc_default( config->n_q );
+    tts->mimi = moshi_mimi_alloc_default( (int) config->n_q );
     tts->mimi_weights = WeightLoader::from_safetensor( mimi_path.c_str(), tts->scratch_cpu, backend );
     assert( tts->mimi_weights );
     get_weights( tts->mimi_weights, "mimi.quantizer.", tts->mimi->quantizer );
@@ -112,7 +112,7 @@ moshi_ttsmodel_t * moshi_ttsmodel( ggml_backend * backend, std::string path = "k
 
     tts->sp.Load( tokenizer_path );
 
-    tts->delay_steps = config->tts_config.audio_delay * tts->mimi->frame_rate;
+    tts->delay_steps = (int)( config->tts_config.audio_delay * tts->mimi->frame_rate );
     assert( tts->delay_steps == 16 );
     // we invasively put the on_audio_hook in lm, so we need to copy delay_steps
     tts->lm->delay_steps = tts->delay_steps;
@@ -186,7 +186,7 @@ bool load_voice(
 
     float cross_attention_pos_emb_scale = 1;
     //auto positions = ggml_arange(b_voice_ctx, 0, speaker_wavs_cond->ne[1], 1);
-    auto positions = b_voice_ctx.arange(0, speaker_wavs_cond->ne[1], 1);
+    auto positions = b_voice_ctx.arange(0, (float) speaker_wavs_cond->ne[1], 1);
     auto pos_emb = ggml_timestep_embedding(b_voice_ctx, positions, 2048, 10000);
     auto condition_cross = ggml_add(b_voice_ctx, speaker_wavs_cond, ggml_scale(b_voice_ctx, pos_emb, cross_attention_pos_emb_scale));
 
@@ -345,7 +345,7 @@ void moshi_ttsmodel_generate_wav(
 
     auto lmgen = moshi_lmgen_t{
         tts->lm,
-        true, 0.6, 0.6, 250, 25,
+        true, 0.6f, 0.6f, 250, 25,
         machine, machine_state,
         tts->voice.sum, tts->voice.cross,
         &tts->voice.text_prefixes, &tts->voice.audio_prefixes

@@ -4,11 +4,8 @@
 #include <math.h>
 #include <assert.h>
 #include <iostream> // tts
-#include <pthread.h>
 
 #include <limits.h>
-#include <unistd.h>
-#include <libgen.h>
 
 #include <moshi/moshi.h>
 #include "ffmpeg_helpers.h"
@@ -34,11 +31,11 @@ static void print_usage(const char * program) {
     exit(1);
 }
 
-pthread_mutex_t stdin_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t stdin_ready = PTHREAD_COND_INITIALIZER;
+SDL_mutex * stdin_mutex;
+SDL_cond * stdin_ready;
 std::string stdin_text;
 
-void * stdin_thread_func( void * arg ) {
+int stdin_thread_func( void * arg ) {
     char buffer[1024];
     while (true) {
         char * read = fgets( buffer, sizeof(buffer) - 1, stdin );
@@ -46,20 +43,20 @@ void * stdin_thread_func( void * arg ) {
             printf("fgets returned NULL\n");
             break;
         }
-        pthread_mutex_lock( &stdin_mutex );
+        SDL_LockMutex( stdin_mutex );
         stdin_text += buffer;
-        pthread_cond_signal( &stdin_ready );
-        pthread_mutex_unlock( &stdin_mutex );
+        SDL_CondSignal( stdin_ready );
+        SDL_UnlockMutex( stdin_mutex );
     }
-    return NULL;
+    return 0;
 }
 
 bool get_text( std::string & text, bool block ) {
     bool ready = false;
-    pthread_mutex_lock( &stdin_mutex );
+    SDL_LockMutex( stdin_mutex );
     if ( block ) {
         while ( ! stdin_text.size() ) {
-            pthread_cond_wait( &stdin_ready, &stdin_mutex );
+            SDL_CondWait( stdin_ready, stdin_mutex );
         }
     }
     if ( stdin_text.size() ) {
@@ -67,7 +64,7 @@ bool get_text( std::string & text, bool block ) {
         stdin_text = "";
         ready = true;
     }
-    pthread_mutex_unlock( &stdin_mutex );
+    SDL_UnlockMutex( stdin_mutex );
     return ready;
 }
 
@@ -98,8 +95,8 @@ int main(int argc, char *argv[]) {
     std::string voice_filename;
     int seed = (int)time(NULL);
     char * text = NULL;
-    float text_temperature = 0.6;
-    float depth_temperature = 0.6;
+    float text_temperature = 0.6f;
+    float depth_temperature = 0.6f;
 
     //////////////////////
     // MARK: Parse Args
@@ -174,7 +171,7 @@ int main(int argc, char *argv[]) {
                 fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
                 exit(1);
             }
-            text_temperature = std::stod(argv[++i]);
+            text_temperature = (float) std::stod(argv[++i]);
             depth_temperature = text_temperature;
             continue;
         }
@@ -209,7 +206,7 @@ int main(int argc, char *argv[]) {
     ensure_path( tts_path );
 
     std::string tts_config_path = tts_path + "config.json";
-    if ( access( tts_config_path.c_str(), F_OK | R_OK ) != 0 ) {
+    if ( ! file_exists( tts_config_path.c_str() ) ) {
         // is path specific (aka absolute or relative)
         if ( is_abs_or_rel( tts_config_path ) ) {
             fprintf( stderr, "error: failed to find config.json from path: \"%s\"\n", tts_path.c_str() );
@@ -227,7 +224,7 @@ int main(int argc, char *argv[]) {
         bool found = false;
         for ( auto & path : paths ) {
             tts_config_path = path + "config.json";
-            if ( access( tts_config_path.c_str(), F_OK | R_OK ) == 0 ) {
+            if ( file_exists( tts_config_path.c_str() ) ) {
                 tts_path = path;
                 found = true;
                 break;
@@ -240,8 +237,8 @@ int main(int argc, char *argv[]) {
     }
 
     if ( input_filename ) {
-        if ( access( input_filename, F_OK | R_OK ) != 0 ) {
-            fprintf( stderr, "error: failed to find or access input file: \"%s\"\n", input_filename );
+        if ( ! file_exists( input_filename ) ) {
+            fprintf( stderr, "error: failed to find input file: \"%s\"\n", input_filename );
             exit(1);
         }
     }
@@ -254,7 +251,7 @@ int main(int argc, char *argv[]) {
 
     // find/check files in the config
     std::string tokenizer_filepath = tts_path + tts_config.tokenizer_name;
-    if ( access( tokenizer_filepath.c_str(), F_OK | R_OK ) != 0 ) {
+    if ( ! file_exists( tokenizer_filepath.c_str() ) ) {
         bool found = false;
         if ( tts_config.tokenizer_name == "tokenizer_spm_8k_en_fr_audio.model"
           || tts_config.tokenizer_name == "tokenizer_en_fr_audio_8000.model"
@@ -276,7 +273,7 @@ int main(int argc, char *argv[]) {
                 paths.push_back( program_path + "stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model" );
             }
             for ( auto & path : paths ) {
-                if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
+                if ( file_exists( path.c_str() ) ) {
                     tokenizer_filepath = path;
                     found = true;
                     break;
@@ -290,13 +287,13 @@ int main(int argc, char *argv[]) {
     }
 
     std::string moshi_filepath = tts_path + tts_config.moshi_name;
-    if ( access( moshi_filepath.c_str(), F_OK | R_OK ) != 0 ) {
+    if ( ! file_exists( moshi_filepath.c_str() ) ) {
         fprintf( stderr, "error: missing moshi file \"%s\"\n", moshi_filepath.c_str() );
         exit(1);
     }
 
     std::string mimi_filepath = tts_path + tts_config.mimi_name;
-    if ( access( mimi_filepath.c_str(), F_OK | R_OK ) != 0 ) {
+    if ( ! file_exists( mimi_filepath.c_str() ) ) {
         bool found = false;
         // the file is the same for all models
         std::vector<std::string> paths = {
@@ -321,7 +318,7 @@ int main(int argc, char *argv[]) {
             paths.push_back( program_path + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
         }
         for ( auto & path : paths ) {
-            if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
+            if ( file_exists( path.c_str() ) ) {
                 mimi_filepath = path;
                 found = true;
                 break;
@@ -354,10 +351,10 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if ( access( voice_filename.c_str(), F_OK | R_OK ) != 0 ) {
+    if ( ! file_exists( voice_filename.c_str() ) ) {
         // is path specific (aka absolute or relative)
         if ( is_abs_or_rel( voice_filename ) ) {
-            fprintf( stderr, "error: failed to find or access voice file: \"%s\"\n", voice_filename.c_str() );
+            fprintf( stderr, "error: failed to find voice file: \"%s\"\n", voice_filename.c_str() );
             exit(1);
         }
         std::vector<std::string> paths = { "kyutai/tts-voices/" + voice_filename };
@@ -371,14 +368,14 @@ int main(int argc, char *argv[]) {
         }
         bool found = false;
         for ( auto & path : paths ) {
-            if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
+            if ( file_exists( path.c_str() ) ) {
                 voice_filename = path;
                 found = true;
                 break;
             }
         }
         if ( ! found ) {
-            fprintf( stderr, "error: failed to find or access voice file: \"%s\"\n", voice_filename.c_str() );
+            fprintf( stderr, "error: failed to find voice file: \"%s\"\n", voice_filename.c_str() );
             exit(1);
         }
     }
@@ -386,6 +383,9 @@ int main(int argc, char *argv[]) {
     ///////////////////////////////////////////////
     // MARK: Open / Allocate
     ///////////////////////////////////////////////
+
+    stdin_mutex = SDL_CreateMutex();
+    stdin_ready = SDL_CreateCond();
 
     // context
     unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
@@ -454,16 +454,15 @@ int main(int argc, char *argv[]) {
     // maybe ordered from dependency and quickest to fail
 
     // tokenizer
-    tokenizer_t tts_tok;
-    tts_tok.sp.Load( tokenizer_filepath );
-    tts_tok.insert_bos = tts_config.cross_attention;
+    unref_ptr<tokenizer_t> tts_tok = tokenizer_alloc( tokenizer_filepath.c_str(),
+        tts_config.cross_attention );
 
     // codec
-    unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), tts_config.n_q );
+    unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), (int) tts_config.n_q );
     float frame_rate = mimi_frame_rate( codec );
     int frame_size = mimi_frame_size( codec );
 
-    const int delay_steps = tts_config.tts_config.audio_delay * frame_rate;
+    const int delay_steps = (int)( tts_config.tts_config.audio_delay * frame_rate );
     assert( delay_steps == 16 );
     // we invasively put the on_audio_hook in lm, so we need to copy delay_steps
     moshi_lm_set_delay_steps( lm, delay_steps );
@@ -543,7 +542,7 @@ int main(int argc, char *argv[]) {
             voice_decoder,
             codec,
             lm,
-            tts_config.n_q
+            (int) tts_config.n_q
         );
         moshi_lm_voice_prefix( gen, text_prefixes, audio_prefixes );
     }
@@ -586,10 +585,10 @@ int main(int argc, char *argv[]) {
         fclose( f );
     }
     if ( text ) {
-        tokenizer_send( &tts_tok, text );
-        tokenizer_send( &tts_tok, "" ); // flush
+        tokenizer_send( tts_tok, text );
+        tokenizer_send( tts_tok, "" ); // flush
     } else {
-        tokenizer_send( &tts_tok, "done loading " );
+        tokenizer_send( tts_tok, "done loading " );
     }
 
     // tokens
@@ -598,10 +597,11 @@ int main(int argc, char *argv[]) {
     if ( ! output_filename )
         SDL_PauseAudioDevice(state.device_id, 0);
 
-    pthread_t stdin_thread;
+    SDL_Thread *stdin_thread = NULL;
     if ( ! text ) {
-        if ( pthread_create( &stdin_thread, NULL, stdin_thread_func, NULL ) != 0 ) {
-            perror("error: pthread_create failed");
+        stdin_thread = SDL_CreateThread( stdin_thread_func, "stdin_thread",  NULL );
+        if ( ! stdin_thread ) {
+            fprintf( stderr, "error: failed to create thread: %s\n", SDL_GetError() );
             exit(1);
         }
     }
@@ -610,7 +610,7 @@ int main(int argc, char *argv[]) {
     // MARK: Main Loop
     /////////////////////
 
-    bool machine_clean = moshi_lm_is_empty( gen ) && ! tts_tok.tail.size();
+    bool machine_clean = moshi_lm_is_empty( gen ) && tokenizer_empty( tts_tok );
     bool active = true;
     while (active) {
         if ( ! text ) { // stdin
@@ -619,14 +619,14 @@ int main(int argc, char *argv[]) {
             std::string text;
             if ( get_text( text, machine_clean ) ) {
             //if ( get_text( text, false ) ) {
-                tokenizer_send( &tts_tok, text.c_str() );
+                tokenizer_send( tts_tok, text.c_str() );
             }
         } else {
             active = false;
         }
 
         // add at least 4 tokens for the look ahead
-        for ( int i = 0; i < 4 && tokenizer_receive( &tts_tok, &entry ); ++i ) {
+        for ( int i = 0; i < 4 && tokenizer_receive( tts_tok, &entry ); ++i ) {
             if ( machine_clean ) {
                 moshi_lm_machine_reset( gen );
             }

@@ -203,7 +203,7 @@ int json_int64_parse(const_str_t & json, int offset, int64_t & value) {
 	value = (int64_t)d;
 	if (d != (double)value)
 		return json_error("number not an integer");
-	offset = (end - start) + offset;
+	offset = (int) (end - start) + offset;
 	return offset;
 }
 
@@ -214,14 +214,14 @@ int json_double_parse(const_str_t & json, int offset, double & value) {
 	const char *start = json.s + offset;
 	char *end;
 	value = strtod(start, &end);
-	offset = (end - start) + offset;
+	offset = (int) (end - start) + offset;
 	return offset;
 }
 
 int json_float_parse(const_str_t & json, int offset, float & value) {
 	double dvalue;
 	offset = json_double_parse(json, offset, dvalue);
-	value = dvalue;
+	value = (float) dvalue;
 	return offset;
 }
 

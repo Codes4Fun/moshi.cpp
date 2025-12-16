@@ -1,9 +1,6 @@
 #include <stdio.h>
 #include <assert.h>
 #include <iostream> // tts
-#include <pthread.h>
-
-#include <unistd.h>
 
 #include <moshi/moshi.h>
 #include "sdl_helper.h"
@@ -122,7 +119,7 @@ int main(int argc, char *argv[]) {
             paths.push_back( program_path + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
         }
         for ( auto & path : paths ) {
-            if ( access( path.c_str(), F_OK | R_OK ) == 0 ) {
+            if ( file_exists( path.c_str() ) ) {
                 mimi_filepath = path;
                 found = true;
                 printf("using %s\n", mimi_filepath.c_str());

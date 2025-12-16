@@ -73,7 +73,7 @@ ggml_tensor * moshi_apply_weights_per_step_linear(
         return y;
     }
 
-    int T = x->ne[1];
+    int T = (int) x->ne[1];
     ggml_tensor * ys = NULL;
     for ( int t = 0; t < T; t++ ) {
         int module_index = t + offset;
@@ -120,7 +120,7 @@ ggml_tensor * moshi_apply_weights_per_step_gating(
         return y;
     }
 
-    int T = x->ne[1];
+    int T = (int) x->ne[1];
     ggml_tensor * ys = NULL;
     for ( int t = 0; t < T; t++ ) {
         int module_index = t + offset;
@@ -174,8 +174,8 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
         int index,
         ggml_tensor * k,
         ggml_tensor * v ) {
-    int T = k->ne[1];
-    int capacity = keys->ne[1];
+    int T = (int) k->ne[1];
+    int capacity = (int) keys->ne[1];
     index = index % capacity;
     // keys update cache
     auto cache_0_0 = ggml_view_4d( ctx, keys,
@@ -197,7 +197,7 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
         keys->nb[1],
         keys->nb[2],
         keys->nb[3],
-        -keys->nb[1] * index
+        keys->nb[1] * -index
     );
     // values update cache
     auto cache_1_0 = ggml_view_4d( ctx, values,
@@ -219,7 +219,7 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
         values->nb[1],
         values->nb[2],
         values->nb[3],
-        -values->nb[1] * index
+        values->nb[1] * -index
     );
     return std::make_tuple( keys, values );
 }
@@ -228,7 +228,7 @@ ggml_tensor * moshi_kv_cache_get_positions(
         ScratchContext & ctx,
         int end_offset,
         int capacity ) {
-    auto indexes = ctx.arange( 0, capacity, 1 );
+    auto indexes = ctx.arange( 0, (float) capacity, 1 );
 
     auto last_offset = end_offset - 1;
     int end_index = last_offset % capacity;
@@ -246,7 +246,7 @@ ggml_tensor * moshi_kv_cache_get_positions(
     auto capacity_mask = ggml_clamp( ctx, delta, 0, 1 );
     auto const_last_offset = ctx.constant( (float)last_offset );
     auto positions = ggml_add( ctx, delta, const_last_offset );
-    positions = ggml_sub( ctx, positions, ggml_scale( ctx, capacity_mask, capacity ) );
+    positions = ggml_sub( ctx, positions, ggml_scale( ctx, capacity_mask, (float) capacity ) );
 
     auto one = ctx.constant( 1.f );
     indexes = ggml_neg( ctx, indexes );
@@ -346,15 +346,15 @@ ggml_tensor * calculate_attn_bias( ScratchContext & ctx, moshi_smha_t * attn,
     if ( pattern ) {
         if ( ! pattern->tensor ) {
             //create_bias_pattern( ctx.backend, *pattern, capacity, T );
-            create_bias_pattern( ctx.backend, *pattern, capacity, T, 0, -INFINITY );
+            create_bias_pattern( ctx.backend, *pattern, capacity, (int) T, 0, -INFINITY );
         }
-        return bias_pattern_index( ctx, *pattern, noffset );
+        return bias_pattern_index( ctx, *pattern, (int) noffset );
     }
 
-    pos_k = moshi_kv_cache_get_positions( ctx, noffset + T, capacity );
+    pos_k = moshi_kv_cache_get_positions( ctx, (int)( noffset + T ), (int) capacity );
 
     auto offset = ctx.constant( (float)noffset );
-    auto pos_q = ggml_add( ctx, ctx.arange( 0, T, 1 ), offset );
+    auto pos_q = ggml_add( ctx, ctx.arange( 0, (float) T, 1 ), offset );
     pos_q = ggml_view_2d( ctx, pos_q, 1, T, pos_q->nb[0], 0 );
     pos_q = ggml_repeat_4d( ctx, pos_q,
         pos_k->ne[0],
@@ -386,7 +386,7 @@ ggml_tensor * moshi_streaming_multihead_attention(
         ggml_tensor * attn_bias = NULL ) {
     CAPTURE_GROUP( "multihead_attention" );
 
-    int T = query->ne[1];
+    int T = (int) query->ne[1];
     int H = attn->num_heads;
 
     ggml_tensor * offset = NULL;
@@ -402,7 +402,7 @@ ggml_tensor * moshi_streaming_multihead_attention(
         auto in_proj = attn->in_projs[0];
         //assert in_proj.bias is None
         //assert isinstance(in_proj, nn.Linear)
-        int dim = in_proj->weight->ne[1] / 3;
+        int dim = (int) in_proj->weight->ne[1] / 3;
         int dim2 = dim * 2;
         //q = nn.functional.linear(query, in_proj.weight[:dim])
         //q = rearrange(q, "b t (h d) -> b h t d", h=attn->num_heads)
@@ -757,7 +757,7 @@ ggml_tensor * moshi_streaming_transformer_layer(
     }
     x = ggml_add( ctx, x, update );
 
-    states->offset += x->ne[1];
+    states->offset += (int) x->ne[1];
     return x;
 }
 

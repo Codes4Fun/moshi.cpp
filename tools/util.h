@@ -2,6 +2,10 @@
 
 #include <sys/stat.h>
 
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+#endif
+
 static void list_devices() {
     ggml_backend_load_all();
     auto dev_count = ggml_backend_dev_count();
@@ -32,7 +36,7 @@ int find_last( const char * s, int size, char c ) {
 }
 
 int find_last( std::string s, char c ) {
-    return find_last( s.c_str(), s.size(), c );
+    return find_last( s.c_str(), (int) s.size(), c );
 }
 
 const char * get_ext( const char * filename ) {
@@ -68,14 +72,6 @@ std::string get_program_path( const char * argv0 ) {
         path.assign( argv0, index+1 );
         return path;
     }
-    // TODO: add support for windows?
-    /*char filepath[4096];
-    auto size = readlink( "/proc/self/exe", filepath, sizeof(filepath) - 1 );
-    assert ( size != -1 && size != sizeof(filepath) - 1 );
-    index = find_last( filepath, size, '/' );
-    assert( index >= 0 );
-    path.assign( filepath, index+1 );
-    return path;*/
     return "./";
 }
 
@@ -83,55 +79,34 @@ void unref( FILE * f ) {
     fclose( f );
 }
 
-int find_file(
-        const char *filename,
-        const std::vector<std::string> & search_dirs,
-        std::string & result
-) {
-    // try filename directly first
-    result = filename;
-    if ( access( result.c_str(), F_OK | R_OK ) == 0 )
-        return 0;
-
-    if ( filename[0] == '/' ) // absolute path
-        return -1;
-
-    // try search paths next
-    for ( auto & dir : search_dirs ) {
-        result = dir + "/" + filename;
-        if ( access( result.c_str(), F_OK | R_OK ) == 0 )
-            return 0;
-    }
-
-    return -1;
+bool file_exists( const char * filepath ) {
+#if _WIN32
+    struct __stat64 stats;
+    return _stat64( filepath, &stats ) == 0;
+#else
+    struct stat stats;
+    return stat( filepath, &stats ) == 0;
+#endif
 }
-
 
 void check_arg_path( std::string & path, bool & found_file, bool & found_dir ) {
     found_file = false;
     found_dir = false;
 
-    if ( access( path.c_str(), F_OK | R_OK ) != 0 ) {
+#if _WIN32
+    struct __stat64 stats;
+    if ( _stat64( path.c_str(), &stats ) != 0 ) {
         return;
     }
-
-    if ( path.ends_with("/") | path.ends_with("\\") ) {
-        found_dir = true;
-        return;
-    }
-
+#else
     struct stat stats;
     if ( stat( path.c_str(), &stats ) != 0 ) {
-        fprintf( stderr, "error: failed to stat %s\n", path.c_str() );
-        exit(1);
+        return;
     }
+#endif
 
     found_dir = S_ISDIR(stats.st_mode);
     if ( ! found_dir ) {
-        if ( is_abs_or_rel( path ) ) {
-            fprintf( stderr, "error: failed to find file path: \"%s\"\n", path.c_str() );
-            exit(1);
-        }
         found_file = true;
     }
 }

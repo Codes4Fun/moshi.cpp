@@ -20,7 +20,7 @@ ggml_tensor * pad_for_conv1d( ggml_context * ctx, ggml_tensor * x,
         0 0 1 2 3 4 5 0     # (output of tr. conv., but pos. 5 is going to get removed as padding)
             1 2 3 4         # once you removed padding, we are missing one time step !
      */
-    int extra_padding = get_extra_padding_for_conv1d( x->ne[0], kernel_size,
+    int extra_padding = get_extra_padding_for_conv1d( (int) x->ne[0], kernel_size,
         stride, padding_total );
     return ggml_pad( ctx, x, extra_padding, 0, 0, 0 );
 }
@@ -116,7 +116,7 @@ bool calc_out_dim( const moshi_streaming_conv_1d_t * conv,
     const int dilation = 1;
 
     int TP = (kernel_size - 1) * dilation + 1 - stride;
-    int lin = x_ne[0] + TP;
+    int lin = (int) x_ne[0] + TP;
     //int cin = conv->in_channels;
     y_ne[0] = (lin + 2*padding - dilation*(kernel_size - 1) - 1) / stride + 1;
     y_ne[1] = conv->out_channels;
@@ -166,7 +166,7 @@ bool calc_out_dim( const moshi_stateless_conv_1d_t * conv,
     const int dilation = 1;
 
     int TP = (kernel_size - 1) * dilation + 1 - stride;
-    int lin = x_ne[0] + TP;
+    int lin = (int) x_ne[0] + TP;
     //int cin = conv->in_channels;
     y_ne[0] = (lin + 2*padding - dilation*(kernel_size - 1) - 1) / stride + 1;
     y_ne[1] = conv->out_channels;
@@ -208,7 +208,7 @@ void moshi_streaming_conv_transpose_1d_state(
     int padding = 0;
     int output_padding = 0;
     int dilation = 1;
-    int lout = (x_ne[0] - 1) * stride
+    int lout = ((int) x_ne[0] - 1) * stride
             - 2 * padding
             + dilation * (kernel_size - 1)
             + output_padding + 1;
@@ -226,7 +226,7 @@ bool calc_out_dim( const moshi_streaming_conv_transpose_1d_t * conv,
     //const int groups = conv->groups;
 
     // output from convtr
-    int lin = x_ne[0];
+    int lin = (int) x_ne[0];
     int lout = (lin - 1) * stride
             - 2*padding
             + dilation * (kernel_size - 1)

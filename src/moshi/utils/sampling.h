@@ -31,7 +31,7 @@ int moshi_sample_top_k_int( ScratchContext &ctx, ggml_tensor * probs, int k) {
     Returns:
         torch.Tensor: Sampled tokens.
     */
-    k = probs->ne[0] < k? probs->ne[0] : k;
+    k = (int) probs->ne[0] < k? (int) probs->ne[0] : k;
     auto indices = ggml_top_k( ctx, probs, k );
     auto probs_rows = ggml_permute( ctx, probs, 1, 0, 2, 3 );
     probs_rows = ggml_get_rows( ctx, ggml_cont( ctx, probs_rows ), indices );
@@ -59,7 +59,7 @@ int moshi_sample_token_int(
     /* Given logits of shape [*, Card], returns a LongTensor of shape [*]. */
     // Apply softmax for sampling if temp > 0. Else, do greedy sampling to avoid zero division error.
     if ( use_sampling && temp > 0.f ) {
-        auto logits_temp = ggml_scale( ctx, logits, 1.0 / temp);
+        auto logits_temp = ggml_scale( ctx, logits, 1.f / temp);
         auto probs = ggml_soft_max( ctx, logits_temp );
 
         return moshi_sample_top_k_int( ctx, probs, top_k );

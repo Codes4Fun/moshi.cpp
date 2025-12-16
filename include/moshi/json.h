@@ -127,7 +127,7 @@ int json_maybe_get_int64_array(const_str_t & json, int offset, T on_array) {
             } else {
                 skipping = true;
             }
-            offset = (end - start) + offset;
+            offset = (int) (end - start) + offset;
         } else {
             skipping = true;
 

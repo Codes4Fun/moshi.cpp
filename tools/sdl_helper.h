@@ -1,7 +1,11 @@
 #pragma once
 
 #define SDL_MAIN_HANDLED
+#if defined(_WIN32) && !defined(__MINGW32__)
+#include <SDL.h>
+#else // not win32
 #include <SDL2/SDL.h>
+#endif
 
 #define USE_FLOAT
 
@@ -14,15 +18,21 @@ struct sdl_frame_t {
 
 struct AudioState {
     SDL_AudioDeviceID device_id;
-    pthread_mutex_t fifo_mutex = PTHREAD_MUTEX_INITIALIZER;
-    pthread_cond_t not_full = PTHREAD_COND_INITIALIZER;
-    pthread_cond_t not_empty = PTHREAD_COND_INITIALIZER;
+    SDL_mutex * fifo_mutex;
+    SDL_cond * not_full;
+    SDL_cond * not_empty;
 
     sdl_frame_t * free = NULL;
     sdl_frame_t * head = NULL;
     sdl_frame_t * tail = NULL;
 
     bool log = false;
+
+    AudioState() {
+        fifo_mutex = SDL_CreateMutex();
+        not_full = SDL_CreateCond();
+        not_empty = SDL_CreateCond();
+    }
 };
 
 void sdl_init_frames( AudioState & state, int count, int nb_bytes ) {
@@ -38,32 +48,32 @@ void sdl_init_frames( AudioState & state, int count, int nb_bytes ) {
 }
 
 sdl_frame_t * sdl_get_frame( AudioState & state, bool block = true ) {
-    pthread_mutex_lock(&state.fifo_mutex);
+    SDL_LockMutex( state.fifo_mutex );
     auto frame = state.free;
     if ( block ) {
         while ( ! frame ) {
-            pthread_cond_wait(&state.not_full, &state.fifo_mutex);
+            SDL_CondWait( state.not_full,  state.fifo_mutex );
             frame = state.free;
         }
     }
     if ( frame ) {
         state.free = frame->next;
     }
-    pthread_mutex_unlock(&state.fifo_mutex);
+    SDL_UnlockMutex( state.fifo_mutex );
     return frame;
 }
 
 void sdl_free_frame( AudioState & state, sdl_frame_t * frame ) {
-    pthread_mutex_lock(&state.fifo_mutex);
+    SDL_LockMutex( state.fifo_mutex );
     frame->prev = NULL;
     frame->next = state.free;
     state.free = frame;
-    pthread_cond_signal(&state.not_full);
-    pthread_mutex_unlock(&state.fifo_mutex);
+    SDL_CondSignal( state.not_full );
+    SDL_UnlockMutex( state.fifo_mutex );
 }
 
 void sdl_send_frame( AudioState & state, sdl_frame_t * frame ) {
-    pthread_mutex_lock(&state.fifo_mutex);
+    SDL_LockMutex( state.fifo_mutex );
     frame->prev = NULL;
     frame->next = state.head;
     if ( ! state.head ) {
@@ -74,16 +84,16 @@ void sdl_send_frame( AudioState & state, sdl_frame_t * frame ) {
         state.head->prev = frame;
         state.head = frame;
     }
-    pthread_cond_signal(&state.not_empty);
-    pthread_mutex_unlock(&state.fifo_mutex);
+    SDL_CondSignal( state.not_empty );
+    SDL_UnlockMutex( state.fifo_mutex );
 }
 
 sdl_frame_t * sdl_receive_frame( AudioState & state, bool block ) {
-    pthread_mutex_lock(&state.fifo_mutex);
+    SDL_LockMutex( state.fifo_mutex );
     auto frame = state.tail;
     if ( block ) {
         while ( ! frame ) {
-            pthread_cond_wait(&state.not_empty, &state.fifo_mutex);
+            SDL_CondWait( state.not_empty, state.fifo_mutex );
             frame = state.tail;
         }
     }
@@ -99,7 +109,7 @@ sdl_frame_t * sdl_receive_frame( AudioState & state, bool block ) {
             frame->next = NULL;
         }
     }
-    pthread_mutex_unlock(&state.fifo_mutex);
+    SDL_UnlockMutex( state.fifo_mutex );
     return frame;
 }
 

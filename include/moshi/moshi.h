@@ -11,48 +11,50 @@
 #include "ptrs.h"
 #include "safetensor.h"
 
+#if defined(_WIN32) && !defined(__MINGW32__)
+#    ifdef MOSHI_BUILD
+#        define MOSHI_API __declspec(dllexport) extern
+#    else
+#        define MOSHI_API __declspec(dllimport) extern
+#    endif
+#else
+#    define MOSHI_API __attribute__ ((visibility ("default"))) extern
+#endif
+
 // MARK: Moshi Context
 
 struct moshi_context_t;
 
-moshi_context_t * moshi_alloc( ggml_backend * backend );
-moshi_context_t * moshi_alloc( const char * device );
-void unref( moshi_context_t * moshi );
+MOSHI_API moshi_context_t * moshi_alloc( ggml_backend * backend );
+MOSHI_API moshi_context_t * moshi_alloc( const char * device );
+MOSHI_API void unref( moshi_context_t * moshi );
 
 // MARK: Mimi Codec
 
 struct mimi_codec_t;
 
-mimi_codec_t * mimi_alloc( moshi_context_t * moshi, const char * filename, int n_q );
-void unref( mimi_codec_t * codec );
-float mimi_frame_rate( mimi_codec_t * codec );
-int mimi_frame_size( mimi_codec_t * codec );
+MOSHI_API mimi_codec_t * mimi_alloc( moshi_context_t * moshi, const char * filename, int n_q );
+MOSHI_API void unref( mimi_codec_t * codec );
+MOSHI_API float mimi_frame_rate( mimi_codec_t * codec );
+MOSHI_API int mimi_frame_size( mimi_codec_t * codec );
 
 // MARK: Mimi Encode
 
 struct mimi_encode_context_t;
 
-mimi_encode_context_t * mimi_encode_alloc_context( mimi_codec_t * codec );
-void unref( mimi_encode_context_t * context );
-void mimi_encode_send( mimi_encode_context_t * context, float * frame );
-void mimi_encode_receive( mimi_encode_context_t * context, int16_t * tokens );
+MOSHI_API mimi_encode_context_t * mimi_encode_alloc_context( mimi_codec_t * codec );
+MOSHI_API void unref( mimi_encode_context_t * context );
+MOSHI_API void mimi_encode_send( mimi_encode_context_t * context, float * frame );
+MOSHI_API void mimi_encode_receive( mimi_encode_context_t * context, int16_t * tokens );
 
 // MARK: Mimi Decode
 
 struct mimi_decode_context_t;
 
-mimi_decode_context_t * mimi_decode_alloc_context( mimi_codec_t * codec );
-void unref( mimi_decode_context_t * context );
-void mimi_decode_send( mimi_decode_context_t * context, int16_t * tokens );
-void mimi_decode_receive( mimi_decode_context_t * context, float * frame );
-
-// MARK: Voice Condition
-
-/*void voice_condition( voice_t * voice,
-        conditioners_t * cond,
-        ggml_tensor * speaker_wavs,
-        moshi_context_t * moshi
-);*/
+MOSHI_API mimi_decode_context_t * mimi_decode_alloc_context( mimi_codec_t * codec );
+MOSHI_API void unref( mimi_decode_context_t * context );
+MOSHI_API void mimi_decode_send( mimi_decode_context_t * context, int16_t * tokens );
+MOSHI_API void mimi_decode_receive( mimi_decode_context_t * context, float * frame );
 
 // MARK: Tokenizer
 
@@ -63,28 +65,14 @@ struct Entry {
     int64_t time = 0;
 };
 
-struct tokenizer_t {
-    sentencepiece::SentencePieceProcessor sp;
-    int padding_between = 1;
-    bool insert_bos = true;
+struct tokenizer_t;
 
-    std::string tail;
-
-    enum {
-        FIND_START,
-        FIND_END,
-        CHECK_WORD,
-        TOKENIZE,
-    } state = FIND_START;
-    int offset = 0, start_offset = 0, end_offset = 0;
-
-    int found_break = 0;
-    float time;
-    std::deque<std::string> words;
-};
-
-int tokenizer_send( tokenizer_t * tok, std::string text );
-int tokenizer_receive( tokenizer_t * tok, Entry * entry );
+MOSHI_API tokenizer_t * tokenizer_alloc( const char * filepath, bool insert_bos = true );
+MOSHI_API void unref( tokenizer_t * tok );
+MOSHI_API bool tokenizer_empty( tokenizer_t * tok );
+MOSHI_API int tokenizer_send( tokenizer_t * tok, std::string text );
+MOSHI_API int tokenizer_receive( tokenizer_t * tok, Entry * entry );
+MOSHI_API std::string tokenizer_id_to_piece( tokenizer_t * tok, int token );
 
 // MARK: Config
 
@@ -162,38 +150,38 @@ struct moshi_config_t {
     std::string moshi_name; // "dsm_tts_1e68beda@240.safetensors" || "dsm_tts_d6ef30c7@1000.safetensors"
 };
 
-int moshi_get_config( moshi_config_t * config, const char * filename );
+MOSHI_API int moshi_get_config( moshi_config_t * config, const char * filename );
 
 // MARK: LM
 
 struct moshi_lm_t;
 
-moshi_lm_t * moshi_lm_from_files( moshi_context_t * moshi, moshi_config_t * config, const char * filepath );
-void unref( moshi_lm_t * lm );
-void moshi_lm_set_delay_steps( moshi_lm_t * lm, int delay_steps );
-int moshi_lm_get_max_delay( moshi_lm_t * lm );
-int moshi_lm_get_delay_steps( moshi_lm_t * lm );
-int moshi_lm_load( moshi_lm_t * lm );
+MOSHI_API moshi_lm_t * moshi_lm_from_files( moshi_context_t * moshi, moshi_config_t * config, const char * filepath );
+MOSHI_API void unref( moshi_lm_t * lm );
+MOSHI_API void moshi_lm_set_delay_steps( moshi_lm_t * lm, int delay_steps );
+MOSHI_API int moshi_lm_get_max_delay( moshi_lm_t * lm );
+MOSHI_API int moshi_lm_get_delay_steps( moshi_lm_t * lm );
+MOSHI_API int moshi_lm_load( moshi_lm_t * lm );
 
 // MARK: Generator
 
 struct moshi_lm_gen_t;
 
-moshi_lm_gen_t * moshi_lm_generator( moshi_lm_t * lm );
-void unref( moshi_lm_gen_t * gen );
+MOSHI_API moshi_lm_gen_t * moshi_lm_generator( moshi_lm_t * lm );
+MOSHI_API void unref( moshi_lm_gen_t * gen );
 
-int moshi_lm_set_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen, const char * filepath );
-int moshi_lm_load_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen );
-int moshi_lm_voice_prefix( moshi_lm_gen_t * gen, std::deque<int> & text_prefix, std::deque<std::vector<int>> & audio_prefix );
+MOSHI_API int moshi_lm_set_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen, const char * filepath );
+MOSHI_API int moshi_lm_load_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen );
+MOSHI_API int moshi_lm_voice_prefix( moshi_lm_gen_t * gen, std::deque<int> & text_prefix, std::deque<std::vector<int>> & audio_prefix );
 
-void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature );
-void moshi_lm_send( moshi_lm_gen_t * gen, Entry * entry );
-int moshi_lm_receive( moshi_lm_gen_t * gen, int & text_token, std::vector<int16_t> & audio_tokens );
-void moshi_lm_send2( moshi_lm_gen_t * gen, std::vector<int16_t> & audio_tokens );
-void moshi_lm_receive2( moshi_lm_gen_t * gen, int & text_token, float & vad );
-int moshi_lm_is_active( moshi_lm_gen_t * gen );
-int moshi_lm_is_empty( moshi_lm_gen_t * gen );
-void moshi_lm_machine_reset( moshi_lm_gen_t * gen );
+MOSHI_API void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature );
+MOSHI_API void moshi_lm_send( moshi_lm_gen_t * gen, Entry * entry );
+MOSHI_API int moshi_lm_receive( moshi_lm_gen_t * gen, int & text_token, std::vector<int16_t> & audio_tokens );
+MOSHI_API void moshi_lm_send2( moshi_lm_gen_t * gen, std::vector<int16_t> & audio_tokens );
+MOSHI_API void moshi_lm_receive2( moshi_lm_gen_t * gen, int & text_token, float & vad );
+MOSHI_API int moshi_lm_is_active( moshi_lm_gen_t * gen );
+MOSHI_API int moshi_lm_is_empty( moshi_lm_gen_t * gen );
+MOSHI_API void moshi_lm_machine_reset( moshi_lm_gen_t * gen );
 
 // MARK: Misc
 

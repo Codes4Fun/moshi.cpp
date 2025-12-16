@@ -75,7 +75,7 @@ void get_weights( WeightLoader * loader, std::string path,
             auto & scratch_ctx = *loader->scratch;
             auto embedding_sum = scratch_ctx.load( loader->stf, sum_st );
             auto cluster_usage = scratch_ctx.load( loader->stf, usage_st );
-            auto clamp = ggml_clamp( scratch_ctx, cluster_usage, 1e-5, INFINITY );
+            auto clamp = ggml_clamp( scratch_ctx, cluster_usage, 1e-5f, INFINITY );
             auto cont = ggml_cont( scratch_ctx, ggml_transpose(scratch_ctx, clamp) );
             auto embedding = ggml_div( scratch_ctx, embedding_sum, cont );
             scratch_ctx.build_forward_expand( embedding, codebook->embedding );
@@ -178,7 +178,7 @@ ggml_tensor * moshi_residual_vq_encode(
     auto residual = x;
     ggml_tensor * out_indices = NULL;
     if ( ! n_q )
-        n_q = rvq->layers.size();
+        n_q = (int) rvq->layers.size();
     for ( int i = 0; i < n_q; i++ ) {
         auto layer = rvq->layers[i];
         auto indices = moshi_vq_encode( ctx, layer, residual );

@@ -66,6 +66,6 @@ int safetensor_parse(const_str_t & json, safetensors_t & tensors) {
     });
     if (offset == -1)
         return 0;
-    return tensors.size();
+    return (int) tensors.size();
 }
 

@@ -133,7 +133,7 @@ ggml_tensor * torch_nn_functional_scaled_dot_product_attention(
         attn_bias = NULL;
     }
     // if we need -inf, in theory we can just scale it by 2 or higher
-    float scale_factor = 1.f / sqrtf( query->ne[0] );
+    float scale_factor = 1.f / sqrtf( (float) query->ne[0] );
     auto attn_weight = ggml_mul_mat( ctx, key, query );
     attn_weight = ggml_soft_max_ext( ctx, attn_weight, attn_bias, scale_factor, 0.0f );
     value = ggml_cont( ctx, ggml_transpose( ctx, value ) );
@@ -218,7 +218,7 @@ ggml_tensor * torch_nn_functional_scaled_dot_product_attention_custom(
         ggml_tensor * key,
         ggml_tensor * value,
         ggml_tensor * attn_bias ) {
-    float scale_factor = 1.f / sqrtf( query->ne[0] );
+    float scale_factor = 1.f / sqrtf( (float) query->ne[0] );
     auto attn_weight = ggml_mul_mat( ctx, key, query );
     attn_weight = ggml_soft_max_ext( ctx, attn_weight, attn_bias, scale_factor, 0.0f );
     value = ggml_cont( ctx, ggml_transpose( ctx, value ) );

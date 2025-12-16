@@ -227,7 +227,7 @@ public:
             check_error( swr_convert_frame( swr_ctx, NULL, frame ),
                 "Error resampling" );
         }
-        int nb_samples = swr_get_delay( swr_ctx, swr_frame->sample_rate );
+        int nb_samples = (int) swr_get_delay( swr_ctx, swr_frame->sample_rate );
         if ( nb_samples < swr_frame->nb_samples )
             return NULL;
         check_error( swr_convert_frame(swr_ctx, swr_frame, NULL),
@@ -236,7 +236,7 @@ public:
     }
 
     AVFrame * flush( bool inject_silence = false ) {
-        int nb_samples = swr_get_delay( swr_ctx, swr_frame->sample_rate );
+        int nb_samples = (int) swr_get_delay( swr_ctx, swr_frame->sample_rate );
         if ( nb_samples < 1 && ! inject_silence )
             return NULL;
         if ( inject_silence ) {
@@ -329,7 +329,7 @@ public:
         if ( ch_layouts ) {
             for (; nlayouts < 18 && ch_layouts[nlayouts].nb_channels != 0; nlayouts++) {
                 auto & layout = ch_layouts[nlayouts];
-                printf("%d %d %ld\n", layout.order, layout.nb_channels, layout.u.mask);
+                printf("%d %d %" PRIu64 "\n", layout.order, layout.nb_channels, layout.u.mask);
             }
         }
 
@@ -365,7 +365,7 @@ public:
             // I guess that means it supports any channel layout?
             av_channel_layout_copy( &codec_ctx->ch_layout, &in_ch_layout );
         }
-        codec_ctx->time_base = (AVRational){1, in_sample_rate};
+        codec_ctx->time_base = {1, in_sample_rate};
         
         // Some formats require a global header
         if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
@@ -403,7 +403,7 @@ public:
     void frame( AVFrame * frame ) {
         frame->pts = av_rescale_q(
             pts_counter,
-            (AVRational){ 1, codec_ctx->sample_rate },
+            { 1, codec_ctx->sample_rate },
             codec_ctx->time_base );
         pts_counter += frame->nb_samples;
 
@@ -516,7 +516,7 @@ public:
         if ( ch_layouts ) {
             for (; nlayouts < 18 && ch_layouts[nlayouts].nb_channels != 0; nlayouts++) {
                 auto & layout = ch_layouts[nlayouts];
-                printf("%d %d %ld\n", layout.order, layout.nb_channels, layout.u.mask);
+                printf("%d %d %" PRIu64 "\n", layout.order, layout.nb_channels, layout.u.mask);
             }
         }
 
@@ -553,7 +553,7 @@ public:
             // I guess that means it supports any channel layout?
             av_channel_layout_copy( &pOutCodecContext->ch_layout, &other->ch_layout );
         }
-        pOutCodecContext->time_base = (AVRational){1, other->sample_rate};
+        pOutCodecContext->time_base = {1, other->sample_rate};
         
         // Some formats require a global header
         if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
@@ -619,7 +619,7 @@ public:
 
             enc_frame->pts = av_rescale_q(
                 pts_counter,
-                (AVRational){1, pOutCodecContext->sample_rate},
+                {1, pOutCodecContext->sample_rate},
                 pOutCodecContext->time_base);
             pts_counter += enc_frame->nb_samples;
 

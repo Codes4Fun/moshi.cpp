@@ -65,13 +65,13 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
 
     int depformer_num_weights = 1;
     if ( config->depformer_multi_linear ) {
-        depformer_num_weights = config->dep_q;
+        depformer_num_weights = (int) config->dep_q;
         if ( config->depformer_weights_per_step_schedule.size() ) {
             auto max = config->depformer_weights_per_step_schedule[0];
             for ( size_t i = 0; i < config->depformer_weights_per_step_schedule.size(); i++ )
                 if ( max < config->depformer_weights_per_step_schedule[i] )
                     max = config->depformer_weights_per_step_schedule[i];
-            depformer_num_weights = max + 1;
+            depformer_num_weights = (int) max + 1;
         }
     }
 
@@ -110,8 +110,8 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
             layer->self_attn->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
             layer->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
             for ( size_t j =0; j < config->depformer_weights_per_step_schedule.size(); j++ ) {
-                layer->self_attn->weights_per_step_schedule[j] = config->depformer_weights_per_step_schedule[j];
-                layer->weights_per_step_schedule[j] = config->depformer_weights_per_step_schedule[j];
+                layer->self_attn->weights_per_step_schedule[j] = (int) config->depformer_weights_per_step_schedule[j];
+                layer->weights_per_step_schedule[j] = (int) config->depformer_weights_per_step_schedule[j];
             }
             layer->self_attn->in_projs.resize( depformer_num_weights );
             layer->self_attn->out_projs.resize( depformer_num_weights );
@@ -129,22 +129,22 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
         }
     }
     auto lmmodel = new moshi_lmmodel_t;
-    lmmodel->n_q = config->n_q;
-    lmmodel->dep_q = config->dep_q;
-    lmmodel->card = config->card;
-    lmmodel->text_card = config->text_card;
+    lmmodel->n_q = (int) config->n_q;
+    lmmodel->dep_q = (int) config->dep_q;
+    lmmodel->card = (int) config->card;
+    lmmodel->text_card = (int) config->text_card;
     lmmodel->delays.resize( config->delays.size() );
-    int max_delay = config->delays[0];
+    int max_delay = (int) config->delays[0];
     for (size_t i = 0; i < config->delays.size(); i++ ) {
         if ( config->delays[i] > max_delay )
-            max_delay = config->delays[i];
-        lmmodel->delays[i] = config->delays[i];
+            max_delay = (int) config->delays[i];
+        lmmodel->delays[i] = (int) config->delays[i];
     }
     lmmodel->max_delay = max_delay;
-    lmmodel->dim = config->dim;
+    lmmodel->dim = (int) config->dim;
     lmmodel->depformer_weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
     for (size_t i = 0; i < config->depformer_weights_per_step_schedule.size(); i++ )
-        lmmodel->depformer_weights_per_step_schedule[i] = config->depformer_weights_per_step_schedule[i];
+        lmmodel->depformer_weights_per_step_schedule[i] = (int) config->depformer_weights_per_step_schedule[i];
     lmmodel->emb.resize( config->n_q );
     for (int64_t i = 0; i < config->n_q; i++ )
         lmmodel->emb[i] = new moshi_scaled_embedding_t{NULL};
@@ -160,7 +160,7 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
     }
     lmmodel->text_linear = new torch_nn_linear_t;
     lmmodel->transformer = lm_transformer;
-    lmmodel->out_norm = new moshi_rms_norm_t{1e-08};
+    lmmodel->out_norm = new moshi_rms_norm_t{1e-08f};
     lmmodel->depformer_multi_linear = config->depformer_multi_linear;
     assert( config->depformer_multi_linear );
     lmmodel->depformer_in.resize( depformer_num_weights );
@@ -184,9 +184,9 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
     lmmodel->linears.resize( config->dep_q );
     for ( int64_t i = 0; i < config->dep_q; i++ )
         lmmodel->linears[i] = new torch_nn_linear_t;
-    lmmodel->num_codebooks = config->n_q + 1;
-    lmmodel->num_audio_codebooks= config->n_q;
-    lmmodel->audio_offset= 1;
+    lmmodel->num_codebooks = (int) config->n_q + 1;
+    lmmodel->num_audio_codebooks = (int) config->n_q;
+    lmmodel->audio_offset = 1;
     
     return lmmodel;
 }

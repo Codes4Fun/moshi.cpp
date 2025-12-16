@@ -7,7 +7,7 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_get_timestep_embedding(
         ggml_tensor * offset,
         int max_period ) {
     int D_half = D / 2;
-    auto ts = ctx.arange( 0, T, 1 );
+    auto ts = ctx.arange( 0, (float) T, 1 );
     ts = ggml_add( ctx, ts, offset );
     auto rot = ggml_timestep_embedding( ctx, ts, D, max_period );
     auto rotr = ggml_view_2d( ctx, rot, D_half, T, rot->nb[1], 0 );
@@ -30,16 +30,16 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_apply_rope(
         max_period (float): maximum period for the cos and sin.
         time_before_heads (bool):  if True, expected [B, T, H, D], else [B, H, T ,D]
     */
-    int B = q->ne[3];
+    int B = (int) q->ne[3];
     int T, H;
     if ( time_before_heads ) {
-        T = q->ne[2];
-        H = q->ne[1];
+        T = (int) q->ne[2];
+        H = (int) q->ne[1];
     } else {
-        H = q->ne[2];
-        T = q->ne[1];
+        H = (int) q->ne[2];
+        T = (int) q->ne[1];
     }
-    int D = q->ne[0];
+    int D = (int) q->ne[0];
     int D_half = D / 2;
     int B_x_H = B * H;
 

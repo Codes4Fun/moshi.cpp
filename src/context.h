@@ -1,5 +1,7 @@
 #pragma once
 
+#include <inttypes.h>
+
 #include <stdexcept>
 
 typedef int64_t NE[GGML_MAX_DIMS]; // number of elements per dimension
@@ -35,7 +37,7 @@ ggml_type safetensor_get_type(std::string dtype) {
 
 int safetensor_get_shape(safetensor_t * safetensor, NE &ne, int offset = 0) {
     // dimensions are inverted
-    int last_index = safetensor->shape.size() - 1;
+    int last_index = (int) safetensor->shape.size() - 1;
     assert( last_index + offset < 4 );
     for (int i = 0; i < offset; i++)
         ne[i] = 1;
@@ -44,13 +46,13 @@ int safetensor_get_shape(safetensor_t * safetensor, NE &ne, int offset = 0) {
     for (int i = offset + last_index + 1; i < 4; i++) {
         ne[i] = 1;
     }
-    return safetensor->shape.size() + offset;
+    return (int) safetensor->shape.size() + offset;
 }
 
 ggml_tensor * safetensor_alloc( ggml_context * ctx, safetensor_t * safetensor) {
     auto type = safetensor_get_type(safetensor->dtype);
     // dimensions are inverted
-    int last_index = safetensor->shape.size() - 1;
+    int last_index = (int) safetensor->shape.size() - 1;
     NE ne = {1, 1, 1, 1};
     for (int i = 0; i <= last_index; i++)
         ne[i] = safetensor->shape[last_index-i];
@@ -121,7 +123,7 @@ class SafeTensorFile {
         int64_t offset = safetensor->data_offsets[0] + header_length;
         int64_t size = safetensor->data_offsets[1] - safetensor->data_offsets[0];
         if (nbytes > size) {
-            printf("data is smaller than expected, got %ld needed %ld\n", size, nbytes);
+            printf("data is smaller than expected, got %" PRId64 " needed %" PRId64 "\n", size, nbytes);
             exit(-1);
         }
 #ifdef _WIN32
@@ -390,7 +392,7 @@ class ScratchContext {
 
     ggml_tensor * exponential( NE ne, float lambd = 1.f ) {
         auto tensor = ggml_new_tensor( ctx, GGML_TYPE_F32, 4, ne );
-        int n = ggml_nelements( tensor );
+        int64_t n = ggml_nelements( tensor );
         float * data;
         if (backend) {
             constants.push_back({tensor});
@@ -401,10 +403,10 @@ class ScratchContext {
             data = (float*)tensor->data;
         }
 #ifdef DISABLE_RAND
-        for (int i = 0; i < n; i++)
+        for (int64_t i = 0; i < n; i++)
             data[i] = -logf(0.5) / lambd;
 #else
-        for (int i = 0; i < n; i++)
+        for (int64_t i = 0; i < n; i++)
             data[i] = -logf(rand() / (float)RAND_MAX) / lambd;
 #endif
         return tensor;
@@ -575,7 +577,7 @@ class ScratchContext {
                 ggml_backend_tensor_get(copy.src, copy.dst, 0, nbytes);
             }
             for (auto copy : backend_copies) {
-                int nbytes = ggml_nbytes( copy.dst );
+                int64_t nbytes = ggml_nbytes( copy.dst );
                 std::vector<uint8_t> buf( nbytes );
                 ggml_backend_tensor_get( copy.src, buf.data(), 0, nbytes );
                 ggml_backend_tensor_set( copy.dst, buf.data(), 0, nbytes );
