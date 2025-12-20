@@ -59,7 +59,7 @@ void get_weights( WeightLoader * loader, std::string path,
         moshi_EuclideanCodebook_t * codebook ) {
     WeightLoader::bindings_t bindings;
     bindings.push_back({ &codebook->embedding, path + "embedding" });
-    assert( loader->fetch(bindings, [path, codebook] (WeightLoader * loader) {
+    auto n = loader->fetch(bindings, [path, codebook] (WeightLoader * loader) {
         auto sum_st = loader->find( path + "embedding_sum" );
         if ( ! sum_st )
             return false;
@@ -83,7 +83,8 @@ void get_weights( WeightLoader * loader, std::string path,
         });
 
         return true;
-    } ) );
+    } );
+    assert( n );
 }
 
 

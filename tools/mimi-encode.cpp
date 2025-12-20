@@ -22,7 +22,7 @@ static void print_usage(const char * program) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 3) {
+    if (argc < 2) {
         print_usage(argv[0]);
     }
 
@@ -158,8 +158,10 @@ int main(int argc, char *argv[]) {
     if ( ! f ) {
         fprintf( stderr, "error: failed to open \"%s\"\n", output_filename );
     }
-    assert( fwrite( "MIMI", 4, 1, f ) == 1 );
-    assert( fwrite( &n_q, 4, 1, f ) == 1 );
+    auto n = fwrite( "MIMI", 4, 1, f );
+    assert( n == 1 );
+    n = fwrite( &n_q, 4, 1, f );
+    assert( n == 1 );
 
     // resampler
     AVChannelLayout mono;
@@ -179,7 +181,8 @@ int main(int argc, char *argv[]) {
         while ( frame ) {
             mimi_encode_send( encoder, (float*)frame->data[0] );
             mimi_encode_receive( encoder, tokens.data() );
-            assert( fwrite( tokens.data(), n_q*2, 1, f ) == 1 );
+            n = fwrite( tokens.data(), n_q*2, 1, f );
+            assert( n == 1 );
             frame_count++;
             frame = resampler.frame();
         }
@@ -188,7 +191,8 @@ int main(int argc, char *argv[]) {
     if ( frame ) {
         mimi_encode_send( encoder, (float*)frame->data[0] );
         mimi_encode_receive( encoder, tokens.data() );
-        assert( fwrite( tokens.data(), n_q*2, 1, f ) == 1 );
+        n = fwrite( tokens.data(), n_q*2, 1, f );
+        assert( n == 1 );
         frame_count++;
     }
     fclose( f );

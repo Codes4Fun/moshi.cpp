@@ -48,6 +48,8 @@ struct moshi_context_t {
     ggml_backend * backend_cpu;
     own_ptr<ScratchContext> scratch_cpu;
     own_ptr<ScratchContext> scratch;
+    ggml_backend_set_n_threads_t set_n_threads;
+    ggml_backend_set_n_threads_t set_n_threads_cpu;
 };
 
 struct mimi_codec_t {
@@ -102,21 +104,32 @@ static void moshi_alloc( moshi_context_t * moshi, ggml_backend * backend ) {
     assert( backend );
 
     auto dev = ggml_backend_get_device( backend );
+    auto reg = ggml_backend_dev_backend_reg( dev );
+    auto set_n_threads = (ggml_backend_set_n_threads_t)
+        ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads");
     ggml_backend * backend_cpu;
+    ggml_backend_set_n_threads_t set_n_threads_cpu;
     if ( ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_CPU ) {
         backend_cpu = backend;
+        set_n_threads_cpu = set_n_threads;
     } else {
         backend_cpu = ggml_backend_init_by_type( GGML_BACKEND_DEVICE_TYPE_CPU, NULL );
-    }
-    if ( ! backend_cpu ) {
-        fprintf( stderr, "error: failed to initialize cpu device.\n" );
-        exit(1);
+        if ( ! backend_cpu ) {
+            fprintf( stderr, "error: failed to initialize cpu device.\n" );
+            exit(1);
+        }
+        auto dev_cpu = ggml_backend_get_device( backend_cpu );
+        auto reg_cpu = ggml_backend_dev_backend_reg( dev_cpu );
+        set_n_threads_cpu = (ggml_backend_set_n_threads_t)
+            ggml_backend_reg_get_proc_address(reg_cpu, "ggml_backend_set_n_threads");
     }
     auto dev_name = ggml_backend_dev_name( dev );
     printf( "using device: \"%s\"\n", dev_name );
 
     moshi->backend_cpu = backend_cpu;
     moshi->backend = backend;
+    moshi->set_n_threads = set_n_threads;
+    moshi->set_n_threads_cpu = set_n_threads_cpu;
     moshi->scratch_cpu = new ScratchContext( 256, backend_cpu );
     moshi->scratch = new ScratchContext( 256, backend );
 }
@@ -153,6 +166,15 @@ moshi_context_t * moshi_alloc( const char * device ) {
 
 void unref( moshi_context_t * moshi ) {
     delete moshi;
+}
+
+void moshi_set_n_threads( moshi_context_t * moshi, int n ) {
+    if ( moshi->set_n_threads ) {
+        moshi->set_n_threads( moshi->backend, n );
+    }
+    if ( moshi->set_n_threads_cpu && moshi->backend != moshi->backend_cpu ) {
+        moshi->set_n_threads_cpu( moshi->backend_cpu, n );
+    }
 }
 
 // MARK: Mimi Codec
@@ -297,7 +319,8 @@ void mimi_decode_receive( mimi_decode_context_t * context, float * frame ) {
         context->tokens,
         context->frame
     );
-    memcpy( frame, context->frame.data(), context->frame.size() * 4 );
+    if ( frame )
+        memcpy( frame, context->frame.data(), context->frame.size() * 4 );
 }
 
 // MARK: Voice Condition
@@ -746,14 +769,14 @@ int moshi_lm_voice_prefix( moshi_lm_gen_t * gen, std::deque<int> & text_prefix, 
     return 0;
 }
 
-void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature ) {
+void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature, bool logging ) {
     const int max_padding = 8;
     const int initial_padding = 2;
     const int second_stream_ahead = gen->lm->second_stream_ahead;
     gen->state_ctx = new StateContext( moshi->backend );
     if ( gen->voice ) {
         gen->machine = new StateMachine(gen->lm->model->text_card + 1, second_stream_ahead, max_padding, initial_padding);
-        gen->machine->logging = true;
+        gen->machine->logging = logging;
         gen->machine_state = gen->machine->new_state();
         gen->lmgen = moshi_lmgen_t{
             gen->lm->model,

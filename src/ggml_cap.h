@@ -1457,7 +1457,8 @@ void graph_dump( std::string filename, ggml_cgraph * cgraph ) {
                     for ( int ne1 = 0; ne1 < tx->tensor->ne[1]; ne1++ ) {
                         int offset = ne1 * nb1 +ne2 * nb2 +ne3 * nb3;
                         //memcpy( dst, src + offset, cpy_nb1 );
-                        assert( fwrite(src + offset, cpy_nb1, 1, fbin) == 1 );
+                        auto w = fwrite(src + offset, cpy_nb1, 1, fbin);
+                        assert( w == 1 );
                         actual_nbytes += cpy_nb1;
                         //dst += cpy_nb1;
                     }
@@ -1474,9 +1475,11 @@ void graph_dump( std::string filename, ggml_cgraph * cgraph ) {
             if (tx->tensor->buffer) {
                 if (buf.size() < nbytes) buf.resize(nbytes);
                 ggml_backend_tensor_get( tx->tensor, buf.data(), 0, nbytes );
-                assert( fwrite(buf.data(), nbytes, 1, fbin) == 1 );
+                auto w = fwrite(buf.data(), nbytes, 1, fbin);
+                assert( w == 1 );
             } else {
-                assert( fwrite(tx->tensor->data, nbytes, 1, fbin) == 1 );
+                auto w = fwrite(tx->tensor->data, nbytes, 1, fbin);
+                assert( w == 1 );
             }
             total_nbytes += nbytes;
         }
@@ -1529,7 +1532,8 @@ void graph_dump( std::string filename, ggml_cgraph * cgraph ) {
     auto json = out.str();
     auto f = fopen(("capture/" + filename + ".json").c_str(), "wb");
     assert( f );
-    assert( fwrite( json.c_str(), json.size(), 1, f ) == 1 );
+    auto w = fwrite( json.c_str(), json.size(), 1, f );
+    assert( w == 1 );
     fclose( f );
 }
 //#define CAPTURE(filename, cgraph) graph_dump(filename, cgraph)
@@ -1604,7 +1608,8 @@ class GraphDumper {
                                 ne2 * nb2 +
                                 ne3 * nb3;
                             //memcpy( dst, src + offset, cpy_nb1 );
-                            assert( fwrite(src + offset, nbe, 1, fbin) == 1 );
+                            auto w = fwrite(src + offset, nbe, 1, fbin);
+                            assert( w == 1 );
                             actual_nbytes += nbe;
                             //dst += cpy_nb1;
                         }
@@ -1620,9 +1625,11 @@ class GraphDumper {
         if (tensor->buffer) {
             if (buf.size() < nbytes) buf.resize(nbytes);
             ggml_backend_tensor_get( tensor, buf.data(), 0, nbytes );
-            assert( fwrite(buf.data(), nbytes, 1, fbin) == 1 );
+            auto w = fwrite(buf.data(), nbytes, 1, fbin);
+            assert( w == 1 );
         } else {
-            assert( fwrite(tensor->data, nbytes, 1, fbin) == 1 );
+            auto w = fwrite(tensor->data, nbytes, 1, fbin);
+            assert( w == 1 );
         }
         total_nbytes += nbytes;
     }
@@ -1751,7 +1758,8 @@ class GraphDumper {
         auto json = out.str();
         auto f = fopen(("capture/" + gx->dump_filename + ".json").c_str(), "wb");
         assert( f );
-        assert( fwrite( json.c_str(), json.size(), 1, f ) == 1 );
+        auto w = fwrite( json.c_str(), json.size(), 1, f );
+        assert( w == 1 );
         fclose( f );
         gx->dump_filename = "";
     }

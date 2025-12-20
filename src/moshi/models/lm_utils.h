@@ -20,7 +20,8 @@ struct moshi_scaled_embedding_demux_t {
 
 void get_weights( WeightLoader * loader, std::string path,
         moshi_scaled_embedding_demux_t * m ) {
-    assert( loader->fetch( &m->weight, path + "weight", (void*)ggml_get_rows ) );
+    auto n = loader->fetch( &m->weight, path + "weight", (void*)ggml_get_rows );
+    assert( n );
     get_weights( loader, path + "out1.", m->out1 );
     get_weights( loader, path + "out2.", m->out2 );
 }
@@ -65,7 +66,8 @@ struct moshi_scaled_embedding_t {
 
 void get_weights( WeightLoader * loader, std::string path,
         moshi_scaled_embedding_t * m ) {
-    assert( loader->fetch( &m->weight, path + "weight", (void*)ggml_get_rows ) );
+    auto n = loader->fetch( &m->weight, path + "weight", (void*)ggml_get_rows );
+    assert( n );
     if ( m->low_rank )
         get_weights( loader, path + "low_rank.", m->low_rank );
 }

@@ -154,24 +154,33 @@ int moshi_get_config( moshi_config_t * config, const char * filename ) {
     //config->extra_heads_dim = 6;
 
 	auto f = fopen( filename, "rb" );
-	assert( f );
+	if ( ! f ) {
+        fprintf( stderr, "error: failed to open %s\n", filename );
+        return -1;
+    }
     // get file length
 	fseek( f, 0, SEEK_END );
 	auto length = ftell( f );
 	fseek( f, 0, SEEK_SET );
-	assert( length > 0 );
+	if ( length <= 0 ) {
+        fprintf( stderr, "error: empty file %s\n", filename );
+        return -1;
+    }
     // read file
 	std::vector<char> raw( length );
-	assert( fread(raw.data(), length, 1, f) == 1 );
+	auto read = fread(raw.data(), length, 1, f);
 	fclose( f );
+    if ( read != 1 ) {
+        fprintf( stderr, "error: failed to read %s\n", filename );
+        return -1;
+    }
 
 	const_str_t json = {raw.data(), (int)length};
 
     int offset = str_skip_whitespaces(json, 0);
     if (offset >= length || json.s[offset] != '{') {
-        printf( "did not find expected json object" );
-        getchar();
-        exit(-1);
+        fprintf( stderr, "error: did not find expected json object" );
+        return -1;
 	}
 
     offset = json_object_parse(json, offset, [config](
@@ -317,9 +326,8 @@ int moshi_get_config( moshi_config_t * config, const char * filename ) {
         return json_skip_value( json, offset );
     } );
     if ( offset == -1 ) {
-        printf( "error reading config\n" );
-        getchar();
-        exit(-1);
+        fprintf( stderr, "error: reading config %s\n", filename );
+        return -1;
     }
 
     return 0;

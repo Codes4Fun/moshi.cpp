@@ -89,7 +89,9 @@ ggml_tensor * moshi_streaming_conv_1d (
 void get_weights( WeightLoader * loader, std::string path,
         moshi_streaming_conv_1d_t * conv ) {
     // NOTE: ggml_conv_1d requires GGML_TYPE_F16 due to im2col requiring it
-    assert( loader->fetch( &conv->weight, path + "conv.conv.weight", (void*)ggml_conv_1d ) );
+    auto n = loader->fetch( &conv->weight, path + "conv.conv.weight", (void*)ggml_conv_1d );
+    assert( n );
+    // bias not required
     loader->fetch( &conv->bias, path + "conv.conv.bias", (void*)ggml_add, 1 );
 }
 
@@ -175,7 +177,9 @@ bool calc_out_dim( const moshi_stateless_conv_1d_t * conv,
 }
 void get_weights( WeightLoader * loader, std::string path, moshi_stateless_conv_1d_t * conv ) {
     // NOTE: ggml_conv_1d requires GGML_TYPE_F16 due to im2col requiring it
-    assert( loader->fetch( &conv->weight, path + "conv.conv.weight", (void*)ggml_conv_1d ) );
+    auto n = loader->fetch( &conv->weight, path + "conv.conv.weight", (void*)ggml_conv_1d );
+    assert( n );
+    // bias not required
     loader->fetch( &conv->bias, path + "conv.conv.bias", (void*)ggml_add, 1 );
 }
 
@@ -307,8 +311,10 @@ ggml_tensor * moshi_streaming_conv_transpose_1d(
 
 void get_weights( WeightLoader * loader, std::string path,
         moshi_streaming_conv_transpose_1d_t * convtr ) {
-    assert( loader->fetch( &convtr->weight, path + "convtr.convtr.weight",
-        (void*)ggml_conv_transpose_1d ) );
+    auto n = loader->fetch( &convtr->weight, path + "convtr.convtr.weight",
+        (void*)ggml_conv_transpose_1d );
+    assert( n );
+    // bias not required
     loader->fetch( &convtr->bias, path + "convtr.convtr.bias", (void*)ggml_add, 1 );
 }
 

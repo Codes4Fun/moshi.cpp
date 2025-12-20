@@ -128,10 +128,11 @@ class SafeTensorFile {
         }
 #ifdef _WIN32
         //fseeko64(f, offset, SEEK_SET);
-        assert( _fseeki64(f, offset, SEEK_SET) == 0 );
+        auto e = _fseeki64(f, offset, SEEK_SET);
 #else
-        assert( fseek(f, offset, SEEK_SET) == 0 );
+        auto e = fseek(f, offset, SEEK_SET);
 #endif
+        assert( e == 0 );
         if (backend) {
             std::vector<char*> data(nbytes);
             int64_t r = fread(data.data(), nbytes, 1, f);

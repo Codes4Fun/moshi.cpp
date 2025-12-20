@@ -21,7 +21,7 @@ static void print_usage(const char * program) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 3) {
+    if (argc < 2) {
         print_usage(argv[0]);
     }
 

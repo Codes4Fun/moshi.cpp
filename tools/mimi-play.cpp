@@ -3,7 +3,6 @@
 #include <string.h>
 #include <math.h>
 #include <assert.h>
-#include <iostream> // tts
 
 #include <moshi/moshi.h>
 #include "sdl_helper.h"
@@ -137,14 +136,16 @@ int main(int argc, char *argv[]) {
         fprintf( stderr, "error: unable to open \"%s\"\n", input_filename );
         exit( 1 );
     }
-    uint32_t marker;
-    assert( fread( &marker, 4, 1, f ) == 1 );
+    uint32_t marker = 0;
+    auto n = fread( &marker, 4, 1, f );
+    assert( n == 1 );
     if ( marker != *(uint32_t*)"MIMI" ) {
         fprintf( stderr, "error: invalid mimi input file \"%s\".\n", input_filename );
         exit( 1 );
     }
-    int n_q;
-    assert( fread( &n_q, 4, 1, f ) == 1 );
+    int n_q = 0;
+    n = fread( &n_q, 4, 1, f );
+    assert( n == 1 );
     if ( n_q < 1 || n_q > 32 ) {
         fprintf( stderr, "error: n_q in mimi file out of range %d\n", n_q );
         exit( 1 );

@@ -161,11 +161,13 @@ public:
 	void load(FILE * f, void * data) {
 #ifdef _WIN32
 		//assert( fseeko64(f, this->data.offset, SEEK_SET) == 0 );
-		assert( _fseeki64(f, this->data.offset, SEEK_SET) == 0 );
+		auto e = _fseeki64(f, this->data.offset, SEEK_SET);
 #else
-		assert( fseek(f, this->data.offset, SEEK_SET) == 0 );
+		auto e = fseek(f, this->data.offset, SEEK_SET);
 #endif
-		assert( fread(data, this->data.nbytes, 1, f) == 1 );
+		assert( e == 0 );
+		auto n = fread(data, this->data.nbytes, 1, f);
+		assert( n == 1 );
 	}
 	void load(FILE * f, std::vector<uint8_t> & data) {
 		data.resize( this->data.nbytes );

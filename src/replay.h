@@ -59,7 +59,8 @@ int replay_test( std::string filename, ggml_backend * backend = NULL ) {
 	assert( length > 0 );
 
 	std::vector<char> raw( length );
-	assert( fread(raw.data(), length, 1, f) == 1 );
+	auto n = fread(raw.data(), length, 1, f);
+	assert( n == 1 );
 	fclose( f );
 
 	const_str_t json = {raw.data(), (int)length};

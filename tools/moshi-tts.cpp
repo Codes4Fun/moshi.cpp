@@ -3,7 +3,6 @@
 #include <string.h>
 #include <math.h>
 #include <assert.h>
-#include <iostream> // tts
 
 #include <limits.h>
 
@@ -28,6 +27,8 @@ static void print_usage(const char * program) {
     fprintf( stderr, "  -s N,     --seed N           seed value.\n" );
     fprintf( stderr, "  -v FNAME, --voice FNAME      path to voice model/prefix.\n");
     fprintf( stderr, "  -t N,     --temperature N    consistency vs creativity, default 0.6\n");
+    fprintf( stderr, "            --threads N        number of CPU threads to use during generation.\n");
+    fprintf( stderr, "            --bench            sets defaults for benching.\n");
     exit(1);
 }
 
@@ -93,10 +94,14 @@ int main(int argc, char *argv[]) {
     std::string tts_path = "kyutai/tts-0.75b-en-public";
 #endif
     std::string voice_filename;
+    bool seed_set = false;
     int seed = (int)time(NULL);
-    char * text = NULL;
+    const char * text = NULL;
+    bool temperature_set = false;
     float text_temperature = 0.6f;
     float depth_temperature = 0.6f;
+    int n_threads = 0;
+    bool bench = false;
 
     //////////////////////
     // MARK: Parse Args
@@ -163,6 +168,7 @@ int main(int argc, char *argv[]) {
                 fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
                 exit(1);
             }
+            seed_set = true;
             seed = std::stoi(argv[++i]);
             continue;
         }
@@ -171,8 +177,21 @@ int main(int argc, char *argv[]) {
                 fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
                 exit(1);
             }
+            temperature_set = true;
             text_temperature = (float) std::stod(argv[++i]);
             depth_temperature = text_temperature;
+            continue;
+        }
+        if (arg == "--threads") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            n_threads = std::stoi(argv[++i]);
+            continue;
+        }
+        if (arg == "--bench") {
+            bench = true;
             continue;
         }
         if (arg[0] == '-') {
@@ -185,6 +204,18 @@ int main(int argc, char *argv[]) {
             fprintf( stderr, "error: unexpected extra argument \"%s\"\n", argv[i] );
             exit(1);
         }
+    }
+
+    bool use_sdl = ! output_filename;
+    if ( bench ) {
+        if ( ! text && !input_filename )
+            text = "The quick brown fox jumped over the sleeping dog.";
+        if ( ! seed_set ) seed = 0;
+        if ( ! temperature_set ) {
+            text_temperature = 0;
+            depth_temperature = 0;
+        }
+        use_sdl = false;
     }
 
     /////////////////////////
@@ -389,6 +420,10 @@ int main(int argc, char *argv[]) {
 
     // context
     unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
+    if ( n_threads > 0 && n_threads < 512 ) {
+        moshi_set_n_threads( moshi, n_threads );
+        printf( "set threads to %d\n", n_threads );
+    }
 
     // model
     unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &tts_config, moshi_filepath.c_str() );
@@ -432,13 +467,16 @@ int main(int argc, char *argv[]) {
                 fprintf( stderr, "error: unable to open file for writing: %s\n", output_filename );
                 exit( 1 );
             }
-            assert( fwrite( "MIMI", 4, 1, mimi_file ) == 1 );
-            assert( fwrite( &tts_config.n_q, 4, 1, mimi_file ) == 1 );
+            auto n = fwrite( "MIMI", 4, 1, mimi_file );
+            assert( n == 1 );
+            n = fwrite( &tts_config.n_q, 4, 1, mimi_file );
+            assert( n == 1 );
         } else {
             encoder = new Encoder();
             encoder->init_from( output_filename, 24000, AV_SAMPLE_FMT_FLT, mono );
         }
-    } else { // sdl
+    }
+    if ( use_sdl ) {
         if ( SDL_Init(SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0 ) {
             fprintf( stderr, "error: Could not initialize SDL: %s\n", SDL_GetError() );
             exit( 1 );
@@ -450,6 +488,8 @@ int main(int argc, char *argv[]) {
     ///////////////////////
     // MARK: Load / Read
     ///////////////////////
+
+    auto load_start = ggml_time_ms();
 
     // maybe ordered from dependency and quickest to fail
 
@@ -484,7 +524,8 @@ int main(int argc, char *argv[]) {
         resampler->set_input( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
         resampler->set_output( encoder->codec_ctx );
         resampler->init();
-    } else if ( ! mimi_file ) { // sdl
+    }
+    if ( use_sdl ) {
         int sample_rate = 24000;
         int format = AUDIO_F32;
         int nb_samples = 1920;
@@ -547,7 +588,8 @@ int main(int argc, char *argv[]) {
         moshi_lm_voice_prefix( gen, text_prefixes, audio_prefixes );
     }
 
-    printf("done loading.\n");
+    auto load_end = ggml_time_ms();
+    printf("done loading. %f\n", (load_end - load_start) / 1000.f);
 
     /////////////////////////////
     // MARK: Initialize States
@@ -569,20 +611,25 @@ int main(int argc, char *argv[]) {
 
     // read in text file
     // TODO: load and tokenize it in chunks instead of the whole thing
+    own_ptr<char> input_file_text;
     if ( input_filename ) {
         auto f = fopen( input_filename, "rb" );
         if ( ! f ) {
             fprintf( stderr, "error: unable to open \"%s\"\n", input_filename );
             exit( 1 );
         }
-        assert( fseek( f, 0, SEEK_END ) == 0 );
+        auto e = fseek( f, 0, SEEK_END );
+        assert( e == 0 );
         auto size = ftell( f );
         assert( size > 0 );
-        assert( fseek( f, 0, SEEK_SET ) == 0 );
-        text = new char[size];
-        assert( text );
-        assert( fread( text, size, 1, f ) == 1 );
+        e = fseek( f, 0, SEEK_SET );
+        assert( e == 0 );
+        input_file_text = new char[size];
+        assert( input_file_text );
+        auto n = fread( input_file_text, size, 1, f );
+        assert( n == 1 );
         fclose( f );
+        text = input_file_text;
     }
     if ( text ) {
         tokenizer_send( tts_tok, text );
@@ -594,7 +641,7 @@ int main(int argc, char *argv[]) {
     // tokens
     Entry entry;
 
-    if ( ! output_filename )
+    if ( use_sdl )
         SDL_PauseAudioDevice(state.device_id, 0);
 
     SDL_Thread *stdin_thread = NULL;
@@ -610,6 +657,12 @@ int main(int argc, char *argv[]) {
     // MARK: Main Loop
     /////////////////////
 
+    int64_t gen_start = ggml_time_ms();
+    int64_t lm_start = gen_start;
+    int64_t lm_delta_time = 0;
+    int64_t lm_tokens = 0;
+    int64_t lm_frames = 0;
+
     bool machine_clean = moshi_lm_is_empty( gen ) && tokenizer_empty( tts_tok );
     bool active = true;
     while (active) {
@@ -618,7 +671,6 @@ int main(int argc, char *argv[]) {
 
             std::string text;
             if ( get_text( text, machine_clean ) ) {
-            //if ( get_text( text, false ) ) {
                 tokenizer_send( tts_tok, text.c_str() );
             }
         } else {
@@ -629,19 +681,24 @@ int main(int argc, char *argv[]) {
         for ( int i = 0; i < 4 && tokenizer_receive( tts_tok, &entry ); ++i ) {
             if ( machine_clean ) {
                 moshi_lm_machine_reset( gen );
+                lm_start = ggml_time_ms();
             }
+            lm_tokens++;
             moshi_lm_send( gen, &entry );
             active = true;
             machine_clean = false;
         }
 
         if ( moshi_lm_receive( gen, int_text_token, int16_audio_tokens ) ) {
+            lm_frames++;
             if ( mimi_file ) {
-                assert( fwrite( int16_audio_tokens.data(), tts_config.n_q*2, 1, mimi_file ) == 1 );
+                auto n = fwrite( int16_audio_tokens.data(), tts_config.n_q*2, 1, mimi_file );
+                assert( n == 1 );
             }
 
             if ( decoder ) {
                 mimi_decode_send( decoder, int16_audio_tokens.data() );
+                // TODO: look into possibly supporting parallel sdl and file out
                 if ( encoder ) {
                     mimi_decode_receive( decoder, (float*)mimi_frame->data[0] );
                     auto frame = resampler->frame( mimi_frame );
@@ -649,10 +706,12 @@ int main(int argc, char *argv[]) {
                         encoder->frame( frame );
                         frame = resampler->frame();
                     }
-                } else { // sdl
+                } else if ( use_sdl ) {
                     sdl_frame_t * frame = sdl_get_frame( state );
                     mimi_decode_receive( decoder, (float*)frame->data );
                     sdl_send_frame( state, frame );
+                } else {
+                    mimi_decode_receive( decoder, NULL );
                 }
             }
         }
@@ -661,11 +720,23 @@ int main(int argc, char *argv[]) {
         } else if ( moshi_lm_is_empty( gen ) ) {
             // reset?
             if ( ! machine_clean ) {
+                auto lm_end = ggml_time_ms();
+                lm_delta_time += lm_end - lm_start;
+                lm_start = lm_end;
+
                 printf("rest\n");
                 machine_clean = true;
             }
         }
     }
+
+    auto gen_end = ggml_time_ms();
+    printf("done generating. %f\n", (gen_end - gen_start) / 1000.f);
+
+    printf("token count: %4d tokens\n", (int)lm_tokens);
+    printf("frame count: %4d frames\n", (int)lm_frames);
+    printf("token rate:  %f tokens/s\n", lm_tokens * 1000.f / lm_delta_time);
+    printf("frame rate:  %f frames/s\n", lm_frames * 1000.f / lm_delta_time );
 
     ////////////////
     // MARK: Exit
@@ -674,7 +745,7 @@ int main(int argc, char *argv[]) {
     if ( encoder )
         encoder->flush();
 
-    if ( ! output_filename ) { // sdl
+    if ( use_sdl ) {
         SDL_Delay(1);
         SDL_CloseAudioDevice(state.device_id);
         SDL_Quit();

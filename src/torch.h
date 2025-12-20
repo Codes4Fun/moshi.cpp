@@ -32,7 +32,8 @@ ggml_tensor * torch_nn_conv1d(
 void get_weights( WeightLoader * loader, std::string path,
         torch_nn_conv1d_t * conv ) {
     // NOTE: ggml_conv_1d requires GGML_TYPE_F16 due to im2col requiring it
-    assert( loader->fetch( &conv->weight, path + "weight", (void*)ggml_conv_1d ) );
+    auto n = loader->fetch( &conv->weight, path + "weight", (void*)ggml_conv_1d );
+    assert( n );
 }
 
 /******************************\
@@ -60,7 +61,9 @@ ggml_tensor * torch_nn_layer_norm(
 
 void get_weights( WeightLoader * loader, std::string path,
         torch_nn_layer_norm_t * norm ) {
-    assert( loader->fetch( &norm->weight, path + "weight", (void*)ggml_mul ) );
+    auto n = loader->fetch( &norm->weight, path + "weight", (void*)ggml_mul );
+    assert( n );
+    // bias not required
     loader->fetch( &norm->bias, path + "bias", (void*)ggml_add );
 }
 
@@ -85,7 +88,9 @@ ggml_tensor * torch_nn_linear(
 
 void get_weights( WeightLoader * loader, std::string path,
         torch_nn_linear_t * linear ) {
-    assert( loader->fetch( &linear->weight, path + "weight", (void*)ggml_mul_mat ) );
+    auto n = loader->fetch( &linear->weight, path + "weight", (void*)ggml_mul_mat );
+    assert( n );
+    // bias not required
     loader->fetch( &linear->bias, path + "bias", (void*)ggml_add );
 }
 

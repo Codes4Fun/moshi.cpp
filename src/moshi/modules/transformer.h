@@ -23,7 +23,8 @@ ggml_tensor * moshi_rms_norm(
 }
 
 void get_weights( WeightLoader * loader, std::string path, moshi_rms_norm_t * norm ) {
-    assert( loader->fetch( &norm->alpha, path + "alpha", (void*)ggml_rms_norm ) );
+    auto n = loader->fetch( &norm->alpha, path + "alpha", (void*)ggml_rms_norm );
+    assert( n );
 }
 
 /*****************************************\
@@ -43,7 +44,8 @@ ggml_tensor * moshi_layer_scale(
 
 void get_weights( WeightLoader * loader, std::string path,
         moshi_layer_scale_t * scale ) {
-    assert( loader->fetch( &scale->scale, path + "scale", (void*)ggml_mul ) );
+    auto n = loader->fetch( &scale->scale, path + "scale", (void*)ggml_mul );
+    assert( n );
 }
 
 /*****************************************\
@@ -562,7 +564,7 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
             path + "in_projs." + std::to_string(i) + ".weight"
         });
     }
-    assert( loader->fetch(in_projs_bindings, [path, attn]( WeightLoader * loader ) {
+    auto n = loader->fetch(in_projs_bindings, [path, attn]( WeightLoader * loader ) {
         auto st = loader->find( path + "in_proj_weight" );
         if ( ! st )
             return false;
@@ -591,7 +593,8 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
             scratch_ctx.compute();
         } );
         return true;
-    } ) );
+    } );
+    assert( n );
 
     WeightLoader::bindings_t out_projs_bindings;
     for ( size_t i = 0; i < attn->out_projs.size(); i++ ) {
@@ -600,7 +603,7 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
             path + "out_projs." + std::to_string(i) + ".weight"
         });
     }
-    assert( loader->fetch(out_projs_bindings, [path, attn]( WeightLoader * loader ) {
+    n = loader->fetch(out_projs_bindings, [path, attn]( WeightLoader * loader ) {
         auto st = loader->find( path + "out_proj.weight" );
         if ( ! st )
             return false;
@@ -629,7 +632,8 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
             scratch_ctx.compute();
         } );
         return true;
-    } ) );
+    } );
+    assert( n );
 }
 
 /*************************************************************\

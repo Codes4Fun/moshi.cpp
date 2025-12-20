@@ -28,6 +28,7 @@ static void print_usage(const char * program) {
     fprintf( stderr, "  -o FNAME, --output FNAME     output to text file.\n");
     fprintf( stderr, "  -i FNAME, --input FNAME      input file can be wav, mp3, ogg, etc.\n");
     fprintf( stderr, "            --debug            outputs each frames vad and token.\n");
+    fprintf( stderr, "            --threads N        number of CPU threads to use during generation.\n");
     //fprintf( stderr, "  -s N,     --seed N           seed value.\n" );
     exit(1);
 }
@@ -58,6 +59,7 @@ int main(int argc, char *argv[]) {
 #endif
     int seed = (int)time(NULL);
     bool use_sdl = false;
+    int n_threads = 0;
 
     //////////////////////
     // MARK: Parse Args
@@ -117,6 +119,14 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             seed = std::stoi(argv[++i]);
+            continue;
+        }
+        if (arg == "--threads") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            n_threads = std::stoi(argv[++i]);
             continue;
         }
         if (arg == "--debug") {
@@ -280,6 +290,10 @@ int main(int argc, char *argv[]) {
 
     // context
     unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
+    if ( n_threads > 0 && n_threads < 512 ) {
+        moshi_set_n_threads( moshi, n_threads );
+        printf( "set threads to %d\n", n_threads );
+    }
 
     // model
     unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &stt_config, moshi_filepath.c_str() );
@@ -322,6 +336,8 @@ int main(int argc, char *argv[]) {
     ///////////////////////
     // MARK: Load / Read
     ///////////////////////
+
+    auto load_start = ggml_time_ms();
 
     // maybe ordered from dependency and quickest to fail
 
@@ -403,7 +419,8 @@ int main(int argc, char *argv[]) {
     // model
     moshi_lm_load( lm );
 
-    printf("done loading.\n");
+    auto load_end = ggml_time_ms();
+    printf("done loading. %f\n", (load_end - load_start) / 1000.f);
 
     /////////////////////////////
     // MARK: Initialize States
@@ -434,12 +451,16 @@ int main(int argc, char *argv[]) {
     // MARK: Main Loop
     /////////////////////
 
+    int64_t gen_start = ggml_time_ms();
+    int64_t stt_frames = 0;
+
     int vad_count = 0;
     bool last_print_was_vad = false;
     int extra = 8;
     int frame_count = 0;
     AVFrame * dec_frame, * frame = NULL;
     while ( true ) {
+        stt_frames++;
         if ( use_sdl ) {
             // NOTE: this blocks until a frame is ready
             sdl_frame_t * input_frame = sdl_receive_frame( input_state, true );
@@ -607,6 +628,12 @@ int main(int argc, char *argv[]) {
         ++frame_count;
     }
     printf( "\n" );
+
+    auto gen_delta_time = ggml_time_ms() - gen_start;
+    printf("done generating. %f\n", gen_delta_time / 1000.f);
+
+    printf("frame count: %4d frames\n", (int)stt_frames);
+    printf("frame rate:  %f frames/s\n", stt_frames * 1000.f / gen_delta_time );
 
     ////////////////
     // MARK: Exit
