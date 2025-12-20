@@ -29,6 +29,8 @@ MOSHI_API moshi_context_t * moshi_alloc( ggml_backend * backend );
 MOSHI_API moshi_context_t * moshi_alloc( const char * device );
 MOSHI_API void unref( moshi_context_t * moshi );
 
+MOSHI_API void moshi_set_n_threads( moshi_context_t * moshi, int n );
+
 // MARK: Mimi Codec
 
 struct mimi_codec_t;
@@ -174,7 +176,7 @@ MOSHI_API int moshi_lm_set_voice_condition( moshi_context_t * moshi, moshi_lm_ge
 MOSHI_API int moshi_lm_load_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen );
 MOSHI_API int moshi_lm_voice_prefix( moshi_lm_gen_t * gen, std::deque<int> & text_prefix, std::deque<std::vector<int>> & audio_prefix );
 
-MOSHI_API void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature );
+MOSHI_API void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature, bool logging = false );
 MOSHI_API void moshi_lm_send( moshi_lm_gen_t * gen, Entry * entry );
 MOSHI_API int moshi_lm_receive( moshi_lm_gen_t * gen, int & text_token, std::vector<int16_t> & audio_tokens );
 MOSHI_API void moshi_lm_send2( moshi_lm_gen_t * gen, std::vector<int16_t> & audio_tokens );
