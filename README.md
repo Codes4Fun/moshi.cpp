@@ -1,10 +1,10 @@
 
 # moshi.cpp
 
-A partial port of Kyutai's Moshi to C++ and ggml.
+A port of Kyutai's Moshi to C++ and ggml.
 * https://github.com/kyutai-labs/moshi
 
-As of right now, it's development is primarily for learning and development. It's being done to learn about AI, torch, ggml, and other libraries and tools.
+As of right now, it exists primarily for learning and development. It's being done to learn about AI, torch, ggml, and other libraries and tools.
 
 ## Status
 
@@ -16,7 +16,7 @@ There are multiple tools that demo different components:
 * moshi-tts - demonstrates text inputs to audio outputs
 * moshi-stt - demonstrates audio inputs to text outputs
 
-TODO: finish a download tool, integrate llama.cpp to implement an unmute like program, add a gui.
+TODO: finish a download tool, GGUF/quantization support, integrate llama.cpp to implement an unmute like program, add a gui.
 
 ### Performance / Optimizations
 
@@ -26,52 +26,71 @@ Still needs lots of optimization and refactoring. Right now, for example, it reb
 
 I left out a lot of unused code, to save time, but also because there was no easy way for me to test everything, as I add more tests, I will port more code and features.
 
-I did create an optimization that does not exist in moshi, and that is instead of generate an attention bias mask each frame, to generate a reusable pattern at initialization, the equivalent of a lookup table. Not only does this reduce the work to just changing an offset in the pattern tensor, but it also allows it to function with vulkan in ggml, which does not support negations that I originally used to replicate what moshi was doing.
+I did create an optimization that does not exist in moshi, and that is, instead of generating an attention bias mask each frame, it generates a reusable pattern once at initialization, and reuses it like you would a lookup table. Not only does this reduce the work to just changing an offset in the pattern tensor, but it makes easier an implementation that originally involved boolean logic operations and dealing with infinities.
 
-## Building
+## Build Dependencies
 
-The library depends on SentencePiece (tested with 0.2.0) and GGML. The tools add additional dependences FFmpeg (7+) and SDL2.
+The moshi library depends on:
+* SentencePiece (tested with 0.2.0)
+* GGML
+
+The tools depend on:
+* FFmpeg (7+)
+* SDL2
+
+### Sentence Piece
 
 SentencePiece has only been tested using static linking built from source:
 * https://github.com/google/sentencepiece/releases/tag/v0.2.0
 
-GGML can be built from my version, modified to work with vulkan:
+### GGML
+
+If you plan to build vulkan you should use my modified version of ggml:
 * https://github.com/Codes4Fun/ggml
 
-or the offical repository:
+otherwise you can use the official version:
 * https://github.com/ggml-org/ggml
 
 Example build with cuda and vulkan:
 ```
+git clone --branch for_moshi --single-branch https://github.com/codes4fun/ggml
+cd ggml
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE:STRING=Release -DGGML_BACKEND_DL:BOOL=ON -DGGML_CPU_ALL_VARIANTS:BOOL=ON -DGGML_CUDA:BOOL=ON -DGGML_VULKAN:BOOL=ON
+cmake .. -DCMAKE_BUILD_TYPE=Release -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DGGML_CUDA=ON -DGGML_VULKAN=ON
 ```
-You might need to set CMAKE_CUDA_COMPILER to where nvcc is located, and Vulkan_GLSLC_EXECUTABLE to where glslc is located.
+You might need to set `CMAKE_CUDA_COMPILER` to where nvcc is located, and `Vulkan_GLSLC_EXECUTABLE` to where glslc is located. Using a newer version of CMake (4.1+) can usually resolve that.
 
-For FFmpeg, older versions of Ubutnu will not have the latest, it can be built from source, or both linux and windows binaries from here:
+### FFmpeg
+
+For FFmpeg it requires a newer version than most linux package systems include, it can be built from source, or you can use binaries for linux or windows here:
 * https://github.com/BtbN/FFmpeg-Builds/releases
+
+I've tested the `ffmpeg-master-latest-*-lgpl-shared` versions.
+
+Other download options at the official site: https://ffmpeg.org/download.html
+
+### SDL2
 
 For SDL2, it can be installed using standard package managers, for Ubuntu:
 ```
 sudo apt install libsdl2-dev
 ```
-And for MSYS2 MinGW x64:
-```
-pacman -S mingw-w64-x86_64-SDL2
-```
 And windows SDL2 devel libraries (SDL2-devel-2.30.11-VC.zip) can be downloaded here :
 * https://github.com/libsdl-org/SDL/releases/tag/release-2.30.11
 
+## Building
 
-With most of these in place you can use cmake by first creating a build directory:
+With dependencies in place you can use cmake by first cloning this repository and then creating a build directory:
 ```
+git clone https://github.com/codes4fun/moshi.cpp
+cd moshi.cpp
 mkdir build
 cd build
 ```
-and then generate a build on windows for example if using nmake, change generation target and paths as needed:
+and then generate a build using cmake, which for example on windows would look like this (changing generation target and paths as needed):
 ```
-cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo -DGGML_INCLUDE_DIR=C:/repos/ggml/include -DGGML_LIBRARY_DIR=C:/repos/ggml/build/src -DSentencePiece_INCLUDE_DIR=C:/repos/sentencepiece/src -DSentencePiece_LIBRARY_DIR=C:/repos/sentencepiece/build/src -DCMAKE_PREFIX_PATH=C:\lib\SDL2-2.30.11 -DFFmpeg_DIR=D:\lib\ffmpeg-master-latest-win64-lgpl-shared
+cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DGGML_INCLUDE_DIR=C:/repos/ggml/include -DGGML_LIBRARY_DIR=C:/repos/ggml/build/src -DSentencePiece_INCLUDE_DIR=C:/repos/sentencepiece/src -DSentencePiece_LIBRARY_DIR=C:/repos/sentencepiece/build/src -DCMAKE_PREFIX_PATH=C:\lib\SDL2-2.30.11 -DFFmpeg_DIR=C:\lib\ffmpeg-master-latest-win64-lgpl-shared
 ```
 or Ubuntu, change the paths if necessary:
 ```
@@ -80,14 +99,14 @@ cmake .. \
  -DGGML_LIBRARY_DIR=~/repos/ggml/build/src\
  -DSentencePiece_INCLUDE_DIR=~/repos/sentencepiece/include\
  -DSentencePiece_LIBRARY_DIR=~/repos/sentencepiece/lib\
- -DFFmpeg_DIR=~/lib/ffmpeg-master-latest-win64-lgpl-shared
+ -DFFmpeg_DIR=~/lib/ffmpeg-master-latest-linux64-lgpl-shared
 ```
 
 And finally build it.
 ```
 cmake --build .
 ```
-That will create a bin directory under build. You will need to copy over ggml libraries, and if needed the ffmpeg libraries. On windows you will need to copy over ffmpeg, sdl2.
+That will create a bin directory under build. You will need to copy over ggml libraries, and if needed the ffmpeg libraries. On windows you will need to also copy over sdl2.
 
 ## Data / Weights
 
@@ -180,3 +199,11 @@ CPU benchmarks:
 | Intel | Core i7-8750H     | CPU    |    2.73 |    5.03 |       6 |
 | Intel | Core i7-9750H     | CPU    |    2.54 |    5.09 |       6 |
 | Intel | Core i7-6700T     | CPU    |    1.62 |    3.04 |       4 |
+
+## Design Notes
+
+I was originally looking at designing the API after gstreamer and/or potentially integrating it with it, but I found gstreamer was rather hard to debug when things didn't work and they immediately didn't work. I still like the idea of pipes, but I decided to follow how FFmpeg connects decoders resamplers and encoders. I am not entirely set on this, as I have lots of other ideas, such as both streaming to SDL and being able to record to an mp3 file, but also in the future it may make sense for data to stay on the GPU as long as it can, so rather hiding how things are connected would make sense.
+
+Internally I tried to replicate what the original moshi did by using single header files for code, following it's file hierarchy. To make it easier for anyone interested to compare python to c++.
+
+My coding style is a combination of C++ and C, largely because C++ through deep abstraction can make it hard to debug, read, maintain, and refactor code. So I try to keep abstractions shallow, mostly used for reducing code bloat with automation. There are other misc things I do primarily for readability.
