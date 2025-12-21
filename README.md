@@ -119,14 +119,6 @@ kyutai/stt-1b-en_fr-candle/model.safetensors
 kyutai/stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model
 ```
 
-kyutai/tts-0.75b-en-public
-
-
-https://huggingface.co/api/models/kyutai/tts-0.75b-en-public/tree/main
-
-https://huggingface.co/api/models/microsoft/VibeVoice-Realtime-0.5B/tree/main
-
-
 # Benchmarks
 
 A simple way to do benchmarking is to first generate a wav using moshi-tts and then use that wav with moshi-stt. If you store the models in a separate directory, set the environment variable MODEL_CACHE to the root directory containing kyutai folder to make it easier. You can use this command for benchmarking text-to-speech:
