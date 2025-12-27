@@ -24,8 +24,6 @@ int main(int argc, char *argv[]) {
     const char * device = NULL;
     int n_threads = 4;
 
-    auto load_start = ggml_time_ms();
-
     std::string program_path = get_program_path(argv[0]);
     ensure_path( program_path );
     ensure_path( model_root );
@@ -46,6 +44,8 @@ int main(int argc, char *argv[]) {
         moshi_set_n_threads( moshi, n_threads );
         printf( "set threads to %d\n", n_threads );
     }
+
+    auto load_start = ggml_time_ms();
 
     std::string model_path = sts_path + "model.safetensors";
     std::string mimi_path = sts_path + "tokenizer-e351c8d8-checkpoint125.safetensors";
