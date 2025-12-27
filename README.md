@@ -11,10 +11,11 @@ As of right now, it exists primarily for learning and development. It's being do
 There are multiple tools that demo different components:
 * mimi-encode - demonstrates using mimi to encode different inputs to a mimi file
 * mimi-decode - demonstrates using mimi to decode and output different files
-* mimi-play - decodes mimi files and playsback through sdl
+* mimi-play - decodes mimi files and plays them through sdl
 * mimi-echo - realtime demo that allows you to hear mimi compression
 * moshi-tts - demonstrates text inputs to audio outputs
 * moshi-stt - demonstrates audio inputs to text outputs
+* moshi-sts - demonstrates audio inputs to audio (and text) outputs
 
 TODO: finish a download tool, GGUF/quantization support, integrate llama.cpp to implement an unmute like program, add a gui.
 
@@ -22,9 +23,9 @@ TODO: finish a download tool, GGUF/quantization support, integrate llama.cpp to 
 
 On an RTX 4090 using the ggml-cuda backend, the 1.6b model performs at a rate of 3 seconds of output audio for about 1 second of generation time. So 15 seconds of audio takes 5 seconds to generate.
 
-Still needs lots of optimization and refactoring. Right now, for example, it rebuilds the graph for each frame.
+Still needs lots of optimization and refactoring. Right now, for example, it rebuilds graphs each frame.
 
-I left out a lot of unused code, to save time, but also because there was no easy way for me to test everything, as I add more tests, I will port more code and features.
+I left out a lot of unused code from the original, to save time, but also because there was no easy way for me to test all of it, as I add more demos, I will port more code and features over.
 
 I did create an optimization that does not exist in moshi, and that is, instead of generating an attention bias mask each frame, it generates a reusable pattern once at initialization, and reuses it like you would a lookup table. Not only does this reduce the work to just changing an offset in the pattern tensor, but it makes easier an implementation that originally involved boolean logic operations and dealing with infinities.
 
@@ -34,7 +35,7 @@ The moshi library depends on:
 * SentencePiece (tested with 0.2.0)
 * GGML
 
-The tools depend on:
+The tools additionally depend on:
 * FFmpeg (7+)
 * SDL2
 
@@ -137,6 +138,10 @@ kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors
 kyutai/stt-1b-en_fr-candle/model.safetensors
 kyutai/stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model
 ```
+
+If you have an RTX 4090 or newer card with 20GB or more vram, you can try out the speech-to-speech model, moshika.
+* https://huggingface.co/kyutai/moshika-pytorch-bf16
+
 
 # Benchmarks
 

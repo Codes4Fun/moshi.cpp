@@ -350,7 +350,8 @@ struct moshi_lmmodel_t {
 
     own_ptr_vector<torch_nn_linear_t> depformer_in;
     own_ptr_vector<moshi_scaled_embedding_t> depformer_emb;
-    own_ptr<moshi_scaled_embedding_demux_t> depformer_text_emb;
+    own_ptr<moshi_scaled_embedding_demux_t> depformer_text_emb_demux;
+    own_ptr<moshi_scaled_embedding_t> depformer_text_emb;
     own_ptr<moshi_streaming_transformer_t> depformer;
 
     own_ptr_vector<torch_nn_linear_t> extra_heads;
@@ -361,6 +362,8 @@ struct moshi_lmmodel_t {
     int num_audio_codebooks; // n_q
     int audio_offset; // 1
     int delay_steps;
+    int text_initial_token_id;
+    int initial_token_id;
 };
 
 void get_weights( WeightLoader * loader, std::string path, moshi_lmmodel_t * lm ) {
@@ -368,7 +371,10 @@ void get_weights( WeightLoader * loader, std::string path, moshi_lmmodel_t * lm 
         get_weights( loader, path + "depformer_in."+std::to_string(i)+".", lm->depformer_in[i] );
     if ( lm->depformer ) {
         get_weights( loader, path + "depformer.", lm->depformer );
-        get_weights( loader, path + "depformer_text_emb.", lm->depformer_text_emb );
+        if ( lm->demux_second_stream )
+            get_weights( loader, path + "depformer_text_emb.", lm->depformer_text_emb_demux );
+        else
+            get_weights( loader, path + "depformer_text_emb.", lm->depformer_text_emb );
         for ( size_t i = 0; i < lm->depformer_emb.size(); i++ )
             get_weights( loader, path + "depformer_emb."+std::to_string(i)+".", lm->depformer_emb[i] );
     }
@@ -459,8 +465,9 @@ void moshi_lmmodel_depformer_step(
 
     init( state->depformer );
 
-    auto last_token_input = moshi_scaled_embedding_demux( ctx,
-        lm->depformer_text_emb, text_token );
+    auto last_token_input = lm->demux_second_stream?
+        moshi_scaled_embedding_demux( ctx, lm->depformer_text_emb_demux, text_token ) :
+        moshi_scaled_embedding( ctx, lm->depformer_text_emb, text_token );
 
     auto logits = moshi_lmmodel_forward_depformer_transform( ctx, lm, state,
         0, last_token_input, state->transformer_out );
@@ -497,8 +504,8 @@ ggml_tensor * moshi_lmmodel_text_token_embed(
     //ProfileScope profile(time_text_emb_us);
 
     auto input = lm->demux_second_stream?
-        moshi_scaled_embedding_demux( ctx, lm->text_emb_demux,  sequence[0] ) :
-        moshi_scaled_embedding( ctx, lm->text_emb,  sequence[0] );
+        moshi_scaled_embedding_demux( ctx, lm->text_emb_demux, sequence[0] ) :
+        moshi_scaled_embedding( ctx, lm->text_emb, sequence[0] );
 
     for (int cb_index = 0; cb_index < lm->num_audio_codebooks; cb_index++) {
         auto audio_emb = moshi_scaled_embedding( ctx, lm->emb[cb_index],
@@ -542,20 +549,13 @@ std::tuple<ggml_tensor*, ggml_tensor*> moshi_lmmodel_forward_text(
 
 // moshi.models.lm.LMGen
 
-const int initial_token[] = {
-    8000,
-    2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048,
-    2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048,
-    2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048,
-    2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048
-};
-
 const int lm_ungenerated_token_id = -2;
 
 struct moshi_lmgen_state_t {
     int offset;
     int skip;
     std::vector<std::vector<int>> cache;
+    std::vector<int> initial;
 };
 
 moshi_lmgen_state_t * moshi_lmgen_state( moshi_lmmodel_t * lm ) {
@@ -572,6 +572,10 @@ moshi_lmgen_state_t * moshi_lmgen_state( moshi_lmmodel_t * lm ) {
             cache[k] = lm_ungenerated_token_id;
         }
     }
+    state->initial.resize( lm->num_codebooks );
+    state->initial[0] = lm->text_initial_token_id;
+    for ( int i = 1; i < lm->num_codebooks; i++ )
+        state->initial[i] = lm->initial_token_id;
     return state;
 }
 
@@ -646,7 +650,7 @@ bool moshi_lmgen_step(
     for ( int i = 0; i < lm->num_codebooks; i++ ) {
         auto is_init = state->offset <= lm->delays[i];
         if (is_init)
-            input[i] = initial_token[i];
+            input[i] = state->initial[i];
         else
             input[i] = state->cache[positions][i];
     }
@@ -689,7 +693,7 @@ bool moshi_lmgen_step(
         }
     }
 
-    int_audio_tokens.resize( lm->num_audio_codebooks );
+    int_audio_tokens.resize( lm->dep_q );
     if ( lm->depformer ) {
         if (!depformer_replace_tokens) {
             //ProfileScope profile(time_depformer_step_us);
@@ -704,9 +708,11 @@ bool moshi_lmgen_step(
         }
         // on_audio_hook
         const int delay_steps = lm->delay_steps;
-        for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
-            if (state->offset < lm->delays[q + 1] + delay_steps)
-                int_audio_tokens[q] = -1; // token_ids.zero
+        if ( delay_steps ) {
+            for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
+                if (state->offset < lm->delays[q + 1] + delay_steps)
+                    int_audio_tokens[q] = -1; // token_ids.zero
+            }
         }
         if ( audio_prefixes && audio_prefixes->size() ) {
             state->skip = skip_prefix;

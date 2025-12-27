@@ -151,6 +151,10 @@ int moshi_get_config( moshi_config_t * config, const char * filename ) {
     config->stt_config.audio_silence_prefix_seconds = 1.0;
     config->stt_config.audio_delay_seconds = 5.0;
     config->extra_heads_num_heads = 0;
+    config->depformer_context = 0;
+    config->depformer_max_period = 0;
+    config->depformer_gating = "";
+    config->depformer_low_rank_embeddings = 0;
     //config->extra_heads_dim = 6;
 
 	auto f = fopen( filename, "rb" );
@@ -276,8 +280,14 @@ int moshi_get_config( moshi_config_t * config, const char * filename ) {
                 return json_int64_parse( json, offset, config->extra_heads_dim );
             }*/
             break;
+        case 16:   if (strncmp( key, "depformer_gating", 16) == 0 ) {
+                return json_string_parse( json, offset, config->depformer_gating );
+            }
+            break;
         case 17:   if (strncmp( key, "depformer_pos_emb", 17) == 0 ) {
                 return json_string_parse( json, offset, config->depformer_pos_emb );
+            } else if (strncmp( key, "depformer_context", 17) == 0 ) {
+                return json_int64_parse( json, offset, config->depformer_context );
             }
             break;
         case 19:   if (strncmp( key, "depformer_num_heads", 19) == 0 ) {
@@ -294,6 +304,8 @@ int moshi_get_config( moshi_config_t * config, const char * filename ) {
                 return json_string_parse( json, offset, config->positional_embedding );
             } else if (strncmp( key, "depformer_num_layers", 20) == 0 ) {
                 return json_int64_parse( json, offset, config->depformer_num_layers );
+            } else if (strncmp( key, "depformer_max_period", 20) == 0 ) {
+                return json_int64_parse( json, offset, config->depformer_max_period );
             }
             break;
         case 22:   if (strncmp( key, "depformer_multi_linear", 22) == 0 ) {

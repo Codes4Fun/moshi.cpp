@@ -89,8 +89,8 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
                     /*.cross_attention=*/ false,
                     /*.cache_cross_attention=*/ true,
                     /*.causal=*/ config->causal,
-                    /*.rope_max_period=*/ 0,
-                    /*.context=*/ 0,
+                    /*.rope_max_period=*/ (int)config->depformer_max_period,
+                    /*.context=*/ (int)config->depformer_context,
                     /*.weights_per_step=*/ (int)config->depformer_weights_per_step_schedule.size(),
                     /*.weights_per_step_schedule=*/ {},
                     /*.in_projs=*/ {},
@@ -107,12 +107,14 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
                 /*.linear2=*/ NULL,
                 /*.layer_scale_2=*/ NULL
             };
+
             layer->self_attn->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
             layer->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
             for ( size_t j =0; j < config->depformer_weights_per_step_schedule.size(); j++ ) {
                 layer->self_attn->weights_per_step_schedule[j] = (int) config->depformer_weights_per_step_schedule[j];
                 layer->weights_per_step_schedule[j] = (int) config->depformer_weights_per_step_schedule[j];
             }
+
             layer->self_attn->in_projs.resize( depformer_num_weights );
             layer->self_attn->out_projs.resize( depformer_num_weights );
             layer->gating.resize( depformer_num_weights );
@@ -129,6 +131,7 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
         }
     }
     auto lmmodel = new moshi_lmmodel_t;
+    lmmodel->delay_steps = 0;
     lmmodel->n_q = (int) config->n_q;
     lmmodel->dep_q = (int) config->dep_q;
     lmmodel->card = (int) config->card;
@@ -168,14 +171,23 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
         lmmodel->depformer_in[i] = new torch_nn_linear_t;
     if ( config->dep_q > 0 ) {
         lmmodel->depformer_emb.resize( config->dep_q - 1 );
-        for ( int64_t i = 0; i < config->n_q - 1; i++ )
-            lmmodel->depformer_emb[i] = new moshi_scaled_embedding_t{new torch_nn_linear_t};
-        lmmodel->depformer_text_emb = new moshi_scaled_embedding_demux_t{
-            /*.num_embeddings=*/ 8001,
-            /*.out1=*/ new torch_nn_linear_t,
-            /*.out2=*/ new torch_nn_linear_t
-            // NOTE: the original had low_rank for no reason, never gets used in demux
-        };
+        for ( int64_t i = 0; i < config->dep_q - 1; i++ ) {
+            lmmodel->depformer_emb[i] = new moshi_scaled_embedding_t{
+                config->depformer_low_rank_embeddings? new torch_nn_linear_t : NULL
+            };
+        }
+        if ( config->demux_second_stream ) {
+            lmmodel->depformer_text_emb_demux = new moshi_scaled_embedding_demux_t{
+                /*.num_embeddings=*/ (int)config->text_card + 1,
+                /*.out1=*/ new torch_nn_linear_t,
+                /*.out2=*/ new torch_nn_linear_t
+                // NOTE: the original had low_rank, but for demux init only
+            };
+        } else {
+            lmmodel->depformer_text_emb = new moshi_scaled_embedding_t{
+                config->depformer_low_rank_embeddings? new torch_nn_linear_t : NULL
+            };
+        }
     }
     lmmodel->depformer = lm_depformer;
     lmmodel->extra_heads.resize( config->extra_heads_num_heads );
@@ -187,6 +199,8 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
     lmmodel->num_codebooks = (int) config->n_q + 1;
     lmmodel->num_audio_codebooks = (int) config->n_q;
     lmmodel->audio_offset = 1;
+    lmmodel->text_initial_token_id = (int) config->text_card;
+    lmmodel->initial_token_id = (int) config->card;
     
     return lmmodel;
 }

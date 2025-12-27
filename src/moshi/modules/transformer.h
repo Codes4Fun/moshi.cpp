@@ -748,7 +748,7 @@ ggml_tensor * moshi_streaming_transformer_layer(
 
         //update = layer.linear2(activated)
         update = torch_nn_linear( ctx, layer->linear2, activated );
-    } else if ( layer->weights_per_step_schedule.size() ) {
+    } else if ( layer->gating.size() > 1 || layer->weights_per_step_schedule.size() ) {
         update = moshi_apply_weights_per_step_gating( ctx,
             layer->gating, layer->weights_per_step_schedule,
             nx, states->offset );
@@ -788,7 +788,7 @@ void get_weights( WeightLoader * loader, std::string path,
         get_weights( loader, path + "norm2.", layer->norm2 );
 
     if ( layer->gating.size() ) {
-        if ( layer->weights_per_step_schedule.size() ) {
+        if ( layer->weights_per_step_schedule.size() || layer->gating.size() > 1 ) {
             for ( size_t i = 0; i < layer->gating.size(); i++ ) {
                 get_weights( loader, path + "gating." + std::to_string(i) + ".",
                     layer->gating[i] );

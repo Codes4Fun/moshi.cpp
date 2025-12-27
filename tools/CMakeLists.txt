@@ -31,3 +31,18 @@ add_executable(moshi-stt moshi-stt.cpp)
 target_link_libraries(moshi-stt PRIVATE moshi ${GGML_LIBRARIES} ${FFMPEG_LIBRARIES} SDL2::SDL2)
 target_include_directories(moshi-stt PRIVATE ${GGML_INCLUDE_DIRS} ${SentencePiece_INCLUDE_DIRS} ${FFMPEG_INCLUDE_DIRS})
 setup_rpath(moshi-stt)
+
+add_executable(moshi-sts moshi-sts.cpp)
+target_link_libraries(moshi-sts PRIVATE moshi ${GGML_LIBRARIES} ${FFMPEG_LIBRARIES} SDL2::SDL2)
+target_include_directories(moshi-sts PRIVATE ${GGML_INCLUDE_DIRS} ${SentencePiece_INCLUDE_DIRS} ${FFMPEG_INCLUDE_DIRS})
+set(CONFIG_FILE_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/moshi-config.json)
+set(CONFIG_FILE_DEST $<TARGET_FILE_DIR:moshi-sts>)
+add_custom_command(
+    TARGET moshi-sts
+    POST_BUILD        # This runs after the target is built
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CONFIG_FILE_SOURCE}
+            ${CONFIG_FILE_DEST}
+    COMMENT "Copying configuration file to build directory"
+)
+setup_rpath(moshi-sts)

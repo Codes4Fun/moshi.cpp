@@ -131,6 +131,9 @@ struct moshi_config_t {
     int64_t depformer_num_layers; // 4
     //int64_t depformer_dim_feedforward; // 3072   no needed, it's in the weight files
     bool depformer_multi_linear; // true
+    int64_t depformer_context; // 0
+    int64_t depformer_max_period; // 0
+    std::string depformer_gating; // ""
     std::string depformer_pos_emb; // "none"
     bool depformer_weights_per_step; // true
     int64_t depformer_low_rank_embeddings; // 128
