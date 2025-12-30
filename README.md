@@ -174,6 +174,7 @@ CUDA benchmarks:
 | make   | name               | driver | tts fps | stt fps |
 |--------|--------------------|--------|---------|---------|
 | NVIDIA | RTX 4090           | CUDA   |   40.07 |  101.99 |
+| NVIDIA | RTX 4070 Ti        | CUDA   |   16.09 |   34.25 |
 | NVIDIA | GTX 2070           | CUDA   |   15.49 |   60.84 |
 | NVIDIA | RTX 4070 Ti (USB4) | CUDA   |   11.94 |   25.88 |
 | NVIDIA | GTX 1070           | CUDA   |    7.04 |   23.40 |
@@ -183,12 +184,15 @@ Vulkan benchmarks:
 |--------|--------------------|--------|---------|---------|
 | NVIDIA | RTX 4090 Ti        | Vulkan |   23.26 |   43.41 |
 | NVIDIA | GTX 2070           | Vulkan |   13.39 |   21.83 |
+|    AMD | Radeon RX 6700 XT  | Vulkan |   10.23 |   17.51 |
 |    AMD | Radeon 8060S       | Vulkan |    8.38 |   19.23 |
+| NVIDIA | RTX 4070 Ti        | Vulkan |    7.53 |    7.16 |
 |    AMD | Radeon 780M        | Vulkan |    5.98 |   18.43 |
 | NVIDIA | RTX 4070 Ti (USB4) | Vulkan |    4.52 |    3.88 |
 | NVIDIA | GTX 1070           | Vulkan |    4.12 |   15.59 |
 |    AMD | Radeon 890M        | Vulkan |    4.15 |    9.42 |
 |  Intel | UHD Graphics 630   | Vulkan |    0.90 |    2.67 |
+|  Intel | ARC B850 (USB4)    | Vulkan |    0.86 |    0.45 |
 
 CPU benchmarks:
 | make  | name              | driver | tts fps | stt fps | threads |
