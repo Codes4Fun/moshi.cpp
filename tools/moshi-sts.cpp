@@ -9,9 +9,36 @@
 #include "sdl_helper.h"
 #include "util.h"
 
+static void print_usage(const char * program) {
+    fprintf( stderr, R"(usage: %s [option(s)]
+
+uses sdl to listen and respond to audio i/o.
+
+options:
+  -h,       --help              show this help message
+  -c PATH,  --model-cache PATH  path to where all kyutai models are stored and
+                                replaces MODEL_CACHE environment variable.
+  -m PATH,  --model PATH        path to where model is, can be relative to the
+                                MODEL_CACHE environment variable, or program
+                                directory, or working directory.
+  -l,       --list-devices      list hardware and exits.
+  -d NAME,  --device NAME       use named hardware.
+  -s N,     --seed N            seed value.
+  -t N,     --temperature N     consistency vs creativity, default 0.8
+            --threads N         number of CPU threads to use during generation.
+)", program);
+    exit(1);
+}
+
+int64_t lm_start = 0;
+int64_t lm_delta_time = 0;
+int64_t lm_frames = 0;
+
 #include <signal.h>
 void signal_handler(int dummy) {
-    printf("exit\n");
+    printf( "\nrun time: %.3f s\n", lm_delta_time / 1000.f );
+    printf( "run frames: %d\n", (int)lm_frames );
+    printf( "\nframe rate:  %f frames/s\n", lm_frames * 1000.f / lm_delta_time );
     exit(1);
 }
 
@@ -20,14 +47,90 @@ int main(int argc, char *argv[]) {
 
     const char * model_cache = getenv("MODEL_CACHE");
     std::string model_root = model_cache? model_cache : "";
-    std::string sts_path = "kyutai/moshika-pytorch-bf16";
+    std::string model_path = "kyutai/moshika-pytorch-bf16";
     const char * device = NULL;
     int n_threads = 4;
+    int seed = (int)time(NULL);
+    float depth_temperature = 0.8f;
+    float text_temperature = 0.7f;
+
+    //////////////////////
+    // MARK: Parse Args
+    //////////////////////
+
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "-h" || arg == "--help") {
+            print_usage(argv[0]);
+        }
+        if (arg == "-c" || arg == "--model-cache") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires path to models\n", argv[i] );
+                exit(1);
+            }
+            model_root = argv[++i];
+            continue;
+        }
+        if (arg == "-m" || arg == "--model") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires filepath to model\n", argv[i] );
+                exit(1);
+            }
+            model_path = argv[++i];
+            continue;
+        }
+        if (arg == "-l" || arg == "--list-devices") {
+            list_devices();
+        }
+        if (arg == "-d" || arg == "--device") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires name of device\n", argv[i] );
+                exit(1);
+            }
+            device = argv[++i];
+            continue;
+        }
+        if (arg == "-s" || arg == "--seed") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            seed = std::stoi(argv[++i]);
+            continue;
+        }
+        if (arg == "-t" || arg == "--temperature") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            text_temperature = (float) std::stod(argv[++i]);
+            depth_temperature = text_temperature;
+            continue;
+        }
+        if (arg == "--threads") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            n_threads = std::stoi(argv[++i]);
+            continue;
+        }
+        if (arg[0] == '-') {
+            fprintf( stderr, "error: unrecognized option \"%s\"\n", argv[i] );
+            exit(1);
+        }
+        fprintf( stderr, "error: unexpected extra argument \"%s\"\n", argv[i] );
+        exit(1);
+    }
+
+    /////////////////////////
+    // MARK: Initialize
+    /////////////////////////
 
     std::string program_path = get_program_path(argv[0]);
     ensure_path( program_path );
     ensure_path( model_root );
-    ensure_path( sts_path );
+    ensure_path( model_path );
 
     // default config
     moshi_config_t config;
@@ -38,6 +141,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    srand( seed );
+    printf( "seed: %d\n", seed );
+
     // context
     unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
     if ( n_threads > 0 && n_threads < 512 ) {
@@ -47,38 +153,48 @@ int main(int argc, char *argv[]) {
 
     auto load_start = ggml_time_ms();
 
-    std::string model_path = sts_path + "model.safetensors";
-    std::string mimi_path = sts_path + "tokenizer-e351c8d8-checkpoint125.safetensors";
-    std::string tokenizer_path = sts_path + "tokenizer_spm_32k_3.model";
-    if ( ! file_exists( model_path.c_str() ) ) {
-        model_path = model_root + model_path;
-        if ( ! file_exists( model_path.c_str() ) ) {
-            fprintf( stderr, "unable to find model, set MODEL_CACHE to root of models. %s\n", model_path.c_str() );
-            exit(1);
+    // check model-path, absolute path or relative to current working directory
+    std::string model_filepath = model_path + "model.safetensors";
+    std::string mimi_filepath = model_path + "tokenizer-e351c8d8-checkpoint125.safetensors";
+    std::string tokenizer_filepath = model_path + "tokenizer_spm_32k_3.model";
+    if ( ! file_exists( model_filepath.c_str() ) ) {
+        // check model-cache directory
+        model_filepath = model_root + model_path + "model.safetensors";
+        if ( ! file_exists( model_filepath.c_str() ) ) {
+            model_filepath = program_path + model_path + "model.safetensors";
+            if ( ! file_exists( model_filepath.c_str() ) ) {
+                fprintf( stderr, "unable to find model, set MODEL_CACHE to root of models. %s\n", model_path.c_str() );
+                exit(1);
+            } else {
+                mimi_filepath = program_path + model_path + "tokenizer-e351c8d8-checkpoint125.safetensors";
+                tokenizer_filepath = program_path + model_path + "tokenizer_spm_32k_3.model";
+            }
+        } else {
+            mimi_filepath = model_root + model_path + "tokenizer-e351c8d8-checkpoint125.safetensors";
+            tokenizer_filepath = model_root + model_path + "tokenizer_spm_32k_3.model";
         }
-        mimi_path = model_root + mimi_path;
-        tokenizer_path = model_root + tokenizer_path;
     }
+
+    printf( "loading...\n" );
 
     // model
     unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &config,
-        model_path.c_str() );
+        model_filepath.c_str() );
 
     // generator
     unref_ptr<moshi_lm_gen_t> gen = moshi_lm_generator( lm );
 
     // tokenizer
     unref_ptr<tokenizer_t> tok = tokenizer_alloc(
-        tokenizer_path.c_str(),
+        tokenizer_filepath.c_str(),
         config.cross_attention );
 
     // codec
     int num_codebooks = (int)( config.n_q - config.dep_q );
     if ( config.dep_q > config.n_q )
         num_codebooks = (int) config.dep_q;
-    printf( "num_codebooks: %d\n", num_codebooks );
     unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi,
-        mimi_path.c_str(),
+        mimi_filepath.c_str(),
         num_codebooks );
     float frame_rate = mimi_frame_rate( codec );
     int frame_size = mimi_frame_size( codec );
@@ -102,9 +218,9 @@ int main(int argc, char *argv[]) {
     auto load_end = ggml_time_ms();
     printf("done loading. %f\n", (load_end - load_start) / 1000.f);
 
-
-
+    /////////////////////////
     // MARK: SDL
+    /////////////////////////
 
     if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_TIMER) != 0) {
         fprintf(stderr, "Could not initialize SDL: %s\n", SDL_GetError());
@@ -144,15 +260,11 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-
-
+    /////////////////////////
     // MARK: Loop
+    /////////////////////////
 
     // model
-    float depth_temperature = 0.8f;
-    float text_temperature = 0.7f;
-    //float depth_temperature = 0.f;
-    //float text_temperature = 0.f;
     moshi_lm_start( moshi, gen, depth_temperature, text_temperature );
 
     // consumes about   18400 MiB   17.969 GiB  18 GiB
@@ -176,11 +288,18 @@ int main(int argc, char *argv[]) {
         memset(blank.data(), 0, blank.size() * sizeof(blank[0]));
     }
 
+    int64_t lm_start = ggml_time_ms();
+
     SDL_PauseAudioDevice(cap_dev, 0);
     SDL_PauseAudioDevice(dev, 0);
     while ( true ) {
-        // this blocks until a frame is available
+        lm_frames++;
+
+        // sdl_receive_frame will block, don't include in frame rate
+        lm_delta_time += ggml_time_ms() - lm_start;
         sdl_frame_t * input_frame = sdl_receive_frame( input_state, true );
+        lm_start = ggml_time_ms();
+
         mimi_encode_send( encoder, (float*)input_frame->data );
         //mimi_encode_send( encoder, blank.data() );
         sdl_free_frame( input_state, input_frame );
@@ -191,9 +310,14 @@ int main(int argc, char *argv[]) {
         if ( moshi_lm_receive( gen, text_token, tokens ) ) {
             // audio out
             mimi_decode_send( decoder, tokens.data() );
+
+            // sdl_get_frame will block, don't include in frame rate
+            lm_delta_time += ggml_time_ms() - lm_start;
             sdl_frame_t * frame = sdl_get_frame( output_state );
+            lm_start = ggml_time_ms();
+
             mimi_decode_receive( decoder, (float*)frame->data );
-            sdl_send_frame( output_state, frame );
+            sdl_send_frame( output_state, frame ); // this can block
 
             // text out
             if ( text_token != 0 && text_token != 3 /*&& text_token > 0*/ ) {
@@ -212,6 +336,9 @@ int main(int argc, char *argv[]) {
             }
         }
     }
+
+    lm_delta_time += ggml_time_ms() - lm_start;
+    printf( "frame rate:  %f frames/s\n", lm_frames * 1000.f / lm_delta_time );
 
     return 0;
 }
