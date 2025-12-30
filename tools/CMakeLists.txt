@@ -46,3 +46,23 @@ add_custom_command(
     COMMENT "Copying configuration file to build directory"
 )
 setup_rpath(moshi-sts)
+
+set(ARIA2_FILES_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(ARIA2_FILES_DEST_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+file(GLOB ARIA2_FILES_TO_COPY
+    RELATIVE ${ARIA2_FILES_SOURCE_DIR}
+    "${ARIA2_FILES_SOURCE_DIR}/kyutai_*.txt"
+)
+add_custom_target(copy_aria2_files ALL
+    COMMENT "Creating destination directory for text files"
+)
+foreach(file ${ARIA2_FILES_TO_COPY})
+    add_custom_command(
+        TARGET copy_aria2_files
+        POST_BUILD # Run this command after the target's main command
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ARIA2_FILES_SOURCE_DIR}/${file}"
+                "${ARIA2_FILES_DEST_DIR}/${file}"
+        COMMENT "Copying ${file} to ${ARIA2_FILES_DEST_DIR}"
+    )
+endforeach()

@@ -4,11 +4,11 @@
 A port of Kyutai's Moshi to C++ and ggml.
 * https://github.com/kyutai-labs/moshi
 
-As of right now, it exists primarily for learning and development. It's being done to learn about AI, torch, ggml, and other libraries and tools.
+As of right now, it exists primarily for learning and development. It's being done to learn about AI, pytorch, ggml, and other libraries and tools.
 
 ## Status
 
-There are multiple tools that demo different components:
+There are multiple tools that demonstrate different components:
 * mimi-encode - demonstrates using mimi to encode different inputs to a mimi file
 * mimi-decode - demonstrates using mimi to decode and output different files
 * mimi-play - decodes mimi files and plays them through sdl
@@ -17,13 +17,11 @@ There are multiple tools that demo different components:
 * moshi-stt - demonstrates audio inputs to text outputs
 * moshi-sts - demonstrates audio inputs to audio (and text) outputs
 
-TODO: finish a download tool, GGUF/quantization support, integrate llama.cpp to implement an unmute like program, add a gui.
+TODO: GGUF/quantization support, integrate llama.cpp to implement an unmute like program, add a gui.
 
 ### Performance / Optimizations
 
-On an RTX 4090 using the ggml-cuda backend, the 1.6b model performs at a rate of 3 seconds of output audio for about 1 second of generation time. So 15 seconds of audio takes 5 seconds to generate.
-
-Still needs lots of optimization and refactoring. Right now, for example, it rebuilds graphs each frame.
+There still needs to be lots of optimization and refactoring. Right now, for example, it rebuilds graphs each frame.
 
 I left out a lot of unused code from the original, to save time, but also because there was no easy way for me to test all of it, as I add more demos, I will port more code and features over.
 
@@ -111,37 +109,36 @@ That will create a bin directory under build. You will need to copy over ggml li
 
 ## Data / Weights
 
-There are two tts models to choose from, one is 1.6b and the other is 0.75b.
-
-The 1.6b tts model uses cross attention and requires specially made weights for voices, while the 0.75b tts model uses wav files to start inference, just as you would a system prompt. This means you can only choose specially made voices for the 1.6b model, while you can in theory use any wav file sample of a voice you want to match. The downside to 0.75b model is it only seems to be able to generate 10 seconds of voice before falling silent.
-
-The 1b-en_fr-candle stt model has support for vad (voice activity detection), while the larger 2.6b stt model does not.
-
-I recommend downloading the contents of these 5 hugging face repositories:
-* https://huggingface.co/kyutai/tts-1.6b-en_fr/tree/main
-* https://huggingface.co/kyutai/tts-0.75b-en-public/tree/main
-* https://huggingface.co/kyutai/tts-voices/tree/main
-* https://huggingface.co/kyutai/stt-1b-en_fr-candle
-* https://huggingface.co/kyutai/stt-2.6b-en
-
-But if you want to download a minimum, then I recommend the `tts-1.6b-en_fr`, `stt-1b-en_fr-candle` and `tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors`, those are the defaults.
-
-The result file paths should look like this, with tts-voices having a lot of voice samples and weights.
+To make downloading models easier, I have provided aria2 input files that will automatically download and verify the downloaded files. You can install aria2 either by downloading from https://github.com/aria2/aria2/releases/tag/release-1.37.0 or using a package manager like apt:
 ```
-kyutai/tts-1.6b-en_fr/config.json
-kyutai/tts-1.6b-en_fr/dsm_tts_1e68beda@240.safetensors
-kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors
-kyutai/tts-1.6b-en_fr/tokenizer_spm_8k_en_fr_audio.model
-kyutai/tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors
-kyutai/stt-1b-en_fr-candle/config.json
-kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors
-kyutai/stt-1b-en_fr-candle/model.safetensors
-kyutai/stt-1b-en_fr-candle/tokenizer_en_fr_audio_8000.model
+sudo apt install aria2
+```
+or pacman
+```
+sudo pacman -S aria2
+```
+For windows you can unzip the aria2c.exe into the moshi directory.
+
+Aftwards you can run the following which will download and verify the minimal files to run moshi-tts and moshi-stt. This requires about 6 GB of space:
+```
+aria2c --auto-file-renaming=false --check-integrity=true --allow-overwrite=false --disable-ipv6 -i kyutai_defaults.txt
 ```
 
-If you have an RTX 4090 or newer card with 20GB or more vram, you can try out the speech-to-speech model, moshika.
-* https://huggingface.co/kyutai/moshika-pytorch-bf16
+If you want your models to be located in another directory, ideally set it's path in an environment variable named `MODEL_CACHE` and then add to the command line `-d`, so for example in linux use `-d $MODEL_CACHE` or in windows `-d %MODEL_CACHE%`.
 
+If you wish to download all available voices, 731 MB, run aria command again but change the last part from `-i kyutai_defaults.txt` to `-i kyutai_tts-voices.txt`.
+
+These are the set of aria2 download scripts:
+ * kyutai_defaults.txt - downloads default tts-1.6b and stt-1b and one voice.
+ * kyutai_stt-1b-en_fr-candle.txt - downloaded as part of default.
+ * kyutai_stt-2.6b-en.txt - 6 GB, large model without vad but better quality.
+ * kyutai_tts-0.75b-en-public.txt - 2 GB, small model that uses audio files for voices.
+ * kyutai_tts-1.6b-en_fr.txt - downloaded as part of default.
+ * kyutai_tts-voices.txt - 731 MB, all tts-1.6b and tts-0.75b voices
+
+In development right now are speech-to-speech models that will be usable with moshi-sts, currently only moshika is tested to work:
+ * kyutai_moshika-pytorch-bf16.txt - 16 GB female model 
+ * kyutai_moshiko-pytorch-bf16.txt - 16 GB male model
 
 # Benchmarks
 
@@ -174,27 +171,26 @@ These commands output frames per second. Although tts also outputs tokens per se
 Moshi operates at 12.5 frames per second, so anything below that would not work for real time applications.
 
 CUDA benchmarks:
-
-| make   | name             | driver | tts fps | stt fps |
-|--------|------------------|--------|---------|---------|
-| NVIDIA | RTX 4090 Ti      | CUDA   |   40.07 |  101.99 |
-| NVIDIA | GTX 2070         | CUDA   |   15.49 |   60.84 |
-| NVIDIA | GTX 1070         | CUDA   |    7.04 |   23.40 |
+| make   | name               | driver | tts fps | stt fps |
+|--------|--------------------|--------|---------|---------|
+| NVIDIA | RTX 4090           | CUDA   |   40.07 |  101.99 |
+| NVIDIA | GTX 2070           | CUDA   |   15.49 |   60.84 |
+| NVIDIA | RTX 4070 Ti (USB4) | CUDA   |   11.94 |   25.88 |
+| NVIDIA | GTX 1070           | CUDA   |    7.04 |   23.40 |
 
 Vulkan benchmarks:
-
-| make   | name             | driver | tts fps | stt fps |
-|--------|------------------|--------|---------|---------|
-| NVIDIA | RTX 4090 Ti      | Vulkan |   23.26 |   43.41 |
-| NVIDIA | GTX 2070         | Vulkan |   13.39 |   21.83 |
-|    AMD | Radeon 8060S     | Vulkan |    8.38 |   19.23 |
-|    AMD | Radeon 780M      | Vulkan |    5.98 |   18.43 |
-| NVIDIA | GTX 1070         | Vulkan |    4.12 |   15.59 |
-|    AMD | Radeon 890M      | Vulkan |    4.15 |    9.42 |
-|  Intel | UHD Graphics 630 | Vulkan |    0.90 |    2.67 |
+| make   | name               | driver | tts fps | stt fps |
+|--------|--------------------|--------|---------|---------|
+| NVIDIA | RTX 4090 Ti        | Vulkan |   23.26 |   43.41 |
+| NVIDIA | GTX 2070           | Vulkan |   13.39 |   21.83 |
+|    AMD | Radeon 8060S       | Vulkan |    8.38 |   19.23 |
+|    AMD | Radeon 780M        | Vulkan |    5.98 |   18.43 |
+| NVIDIA | RTX 4070 Ti (USB4) | Vulkan |    4.52 |    3.88 |
+| NVIDIA | GTX 1070           | Vulkan |    4.12 |   15.59 |
+|    AMD | Radeon 890M        | Vulkan |    4.15 |    9.42 |
+|  Intel | UHD Graphics 630   | Vulkan |    0.90 |    2.67 |
 
 CPU benchmarks:
-
 | make  | name              | driver | tts fps | stt fps | threads |
 |-------|-------------------|--------|---------|---------|---------|
 |   AMD | Ryzen AI MAX+ 395 | CPU    |    4.24 |    8.36 |       8 |
