@@ -652,7 +652,6 @@ moshi_lm_t * moshi_lm_from_files( moshi_context_t * moshi, moshi_config_t * conf
     if ( ! lm->weights )
         return NULL;
 
-
     if ( config->cross_attention ) {
         lm->cond_weights = WeightLoader::from_safetensor( lm->stf, moshi->scratch_cpu, moshi->backend );
         if ( ! lm->cond_weights )
@@ -681,6 +680,30 @@ int moshi_lm_get_max_delay( moshi_lm_t * lm ) {
 
 int moshi_lm_get_delay_steps( moshi_lm_t * lm ) {
     return lm->model->delay_steps;
+}
+
+bool moshi_lm_quantize( moshi_lm_t * lm, const char * quant ) {
+    uint32_t uquant = *(uint32_t*)quant;
+    ggml_type qtype = (ggml_type)0;
+    switch (uquant) {
+        case 0x305f3451: // "Q4_0"
+        case 0x305f3471: // "q4_0"
+            qtype = GGML_TYPE_Q4_0;
+            break;
+        case 0x4b5f3451: // "Q4_K"
+        case 0x6b5f3471: // "q4_k"
+            qtype = GGML_TYPE_Q4_K;
+            break;
+        case 0x305f3851: // "Q8_0"
+        case 0x305f3871: // "q8_0"
+            qtype = GGML_TYPE_Q8_0;
+            break;
+        default:
+            return false;
+    }
+    lm->weights->quantize = true;
+    lm->weights->qtype = qtype;
+    return true;
 }
 
 int moshi_lm_load( moshi_lm_t * lm ) {

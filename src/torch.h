@@ -88,8 +88,13 @@ ggml_tensor * torch_nn_linear(
 
 void get_weights( WeightLoader * loader, std::string path,
         torch_nn_linear_t * linear ) {
-    auto n = loader->fetch( &linear->weight, path + "weight", (void*)ggml_mul_mat );
-    assert( n );
+    if ( loader->quantize ) {
+        auto n = loader->fetch( &linear->weight, path + "weight", loader->qtype );
+        assert( n );
+    } else {
+        auto n = loader->fetch( &linear->weight, path + "weight", (void*)ggml_mul_mat );
+        assert( n );
+    }
     // bias not required
     loader->fetch( &linear->bias, path + "bias", (void*)ggml_add );
 }

@@ -14,21 +14,25 @@
 #define DEFAULT_BIG
 
 static void print_usage(const char * program) {
-    fprintf( stderr, "usage: %s [option(s)] \"hello world\"\n", program );
-    fprintf( stderr, "\nplays using sdl if output not specified.\n" );
-    fprintf( stderr, "\noption(s):\n" );
-    fprintf( stderr, "  -h,       --help             show this help message\n" );
-    fprintf( stderr, "  -m PATH,  --model-root PATH  path to where all models are stored.\n" );
-    fprintf( stderr, "  -tm PATH, --tts-model PATH   path to tts model.\n" );
-    fprintf( stderr, "  -l,       --list-devices     list hardware and exit.\n" );
-    fprintf( stderr, "  -d NAME,  --device NAME      use named hardware.\n" );
-    fprintf( stderr, "  -o FNAME, --output FNAME     output to file, can be mimi, wav, mp3, ogg, etc.\n");
-    fprintf( stderr, "  -i FNAME, --input FNAME      input text file.\n");
-    fprintf( stderr, "  -s N,     --seed N           seed value.\n" );
-    fprintf( stderr, "  -v FNAME, --voice FNAME      path to voice model/prefix.\n");
-    fprintf( stderr, "  -t N,     --temperature N    consistency vs creativity, default 0.6\n");
-    fprintf( stderr, "            --threads N        number of CPU threads to use during generation.\n");
-    fprintf( stderr, "            --bench            sets defaults for benching.\n");
+    fprintf( stderr, R"(usage: %s [option(s)] \"hello world\"
+
+plays using sdl if output not specified.
+
+option(s):
+  -h,       --help             show this help message
+  -m PATH,  --model-root PATH  path to where all models are stored.
+  -tm PATH, --tts-model PATH   path to tts model.
+  -l,       --list-devices     list hardware and exit.
+  -d NAME,  --device NAME      use named hardware.
+  -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
+  -o FNAME, --output FNAME     output to file, can be mimi, wav, mp3, ogg, etc.
+  -i FNAME, --input FNAME      input text file.
+  -s N,     --seed N           seed value.
+  -v FNAME, --voice FNAME      path to voice model/prefix.
+  -t N,     --temperature N    consistency vs creativity, default 0.6
+            --threads N        number of CPU threads to use during generation.
+            --bench            sets defaults for benching.
+)", program );
     exit(1);
 }
 
@@ -84,6 +88,7 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, signal_handler);
 
     const char * device = NULL;
+    const char * quant = NULL;
     const char * input_filename = NULL;
     const char * output_filename = NULL;
     const char * model_cache = getenv("MODEL_CACHE");
@@ -145,6 +150,14 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             device = argv[++i];
+            continue;
+        }
+        if (arg == "-q" || arg == "--quantize") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires type\n", argv[i] );
+                exit(1);
+            }
+            quant = argv[++i];
             continue;
         }
         if (arg == "-o" || arg == "--output") {
@@ -427,6 +440,12 @@ int main(int argc, char *argv[]) {
 
     // model
     unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &tts_config, moshi_filepath.c_str() );
+    if ( quant ) {
+        if ( ! moshi_lm_quantize( lm, quant ) ) {
+            fprintf( stderr, "error: unknown quant %s\n", quant );
+            exit(-1);
+        }
+    }
 
     // generator
     unref_ptr<moshi_lm_gen_t> gen = moshi_lm_generator( lm );

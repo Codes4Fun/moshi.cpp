@@ -33,6 +33,8 @@ class WeightLoader {
     ggml_backend_buffer_t buffer;
     std::vector<alloc_request_t> alloc_requests;
     std::vector<std::function<void(WeightLoader*)>> init_requests;
+    bool quantize;
+    ggml_type qtype;
 
 private:
     WeightLoader(SafeTensorFile * stf, ScratchContext * scratch, ggml_backend * backend = NULL) {
@@ -41,6 +43,8 @@ private:
         this->backend = backend;
         ctx = NULL;
         buffer = NULL;
+        quantize = false;
+        qtype = GGML_TYPE_Q4_0;
     }
 public:
     static WeightLoader * from_safetensor( SafeTensorFile * stf, ScratchContext * scratch, ggml_backend * backend = NULL ) {
@@ -84,11 +88,50 @@ public:
         return on_bind( this );
     }
 
+    bool fetch( ggml_tensor ** result, std::string name, ggml_type dst_type, int offset = 0 ) {
+        safetensor_t * safetensor =  find( name );
+        *result = NULL;
+        if (!safetensor)
+            return false;
+        // get source info
+        ggml_type src_type = safetensor_get_type( safetensor->dtype );
+        NE ne;
+        int n_dims = safetensor_get_shape(safetensor, ne, offset);
+        if ( dst_type == GGML_TYPE_Q4_K && ne[0] % 256 ) {
+            dst_type = GGML_TYPE_Q4_0;
+        }
+        if ( dst_type == GGML_TYPE_Q4_0 && ne[0] % 32 ) {
+            dst_type = src_type;
+        }
+        if ( dst_type == GGML_TYPE_Q8_K && ne[0] % 256 ) {
+            dst_type = GGML_TYPE_Q8_0;
+        }
+        if ( dst_type == GGML_TYPE_Q8_0 && ne[0] % 32 ) {
+            dst_type = src_type;
+        }
+        add_alloc( result, n_dims, ne, dst_type, name );
+        if (dst_type == src_type) {
+            add_init([ safetensor, result ]( WeightLoader * loader ) {
+                loader->init( safetensor, *result );
+            } );
+        } else {
+            add_init([ safetensor, result ]( WeightLoader * loader ) {
+                auto & scratch_ctx = *loader->scratch;
+                auto original = scratch_ctx.load( loader->stf, safetensor );
+                auto cast = ggml_cast( scratch_ctx, original, (*result)->type );
+                scratch_ctx.build_forward_expand( cast, *result );
+                scratch_ctx.compute();
+            } );
+        }
+        return true;
+    }
+
     bool fetch( ggml_tensor ** result, std::string name, void *func = NULL, int offset = 0 ) {
         safetensor_t * safetensor =  find( name );
         *result = NULL;
         if (!safetensor)
             return false;
+        // get source info
         ggml_type src_type = safetensor_get_type( safetensor->dtype );
         NE ne;
         int n_dims = safetensor_get_shape(safetensor, ne, offset);

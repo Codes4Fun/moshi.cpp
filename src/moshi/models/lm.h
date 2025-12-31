@@ -666,9 +666,6 @@ bool moshi_lmgen_step(
         scratch_transformer_out, lm_states->transformer_out );
     scratch.build_forward_expand( cpy_transformer_out );
 
-    std::vector<float> _text_logits( ggml_nelements( text_logits ) );
-    scratch.build_forward_expand( text_logits, _text_logits.data() );
-
     // note this does the compute
     auto text_token = moshi_sample_token_int( scratch, text_logits,
         use_sampling, temp_text, top_k_text );

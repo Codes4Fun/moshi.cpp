@@ -23,6 +23,7 @@ options:
                                 directory, or working directory.
   -l,       --list-devices      list hardware and exits.
   -d NAME,  --device NAME       use named hardware.
+  -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
   -s N,     --seed N            seed value.
   -t N,     --temperature N     consistency vs creativity, default 0.8
             --threads N         number of CPU threads to use during generation.
@@ -49,6 +50,7 @@ int main(int argc, char *argv[]) {
     std::string model_root = model_cache? model_cache : "";
     std::string model_path = "kyutai/moshika-pytorch-bf16";
     const char * device = NULL;
+    const char * quant = NULL;
     int n_threads = 4;
     int seed = (int)time(NULL);
     float depth_temperature = 0.8f;
@@ -88,6 +90,14 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             device = argv[++i];
+            continue;
+        }
+        if (arg == "-q" || arg == "--quantize") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires type\n", argv[i] );
+                exit(1);
+            }
+            quant = argv[++i];
             continue;
         }
         if (arg == "-s" || arg == "--seed") {
@@ -180,6 +190,12 @@ int main(int argc, char *argv[]) {
     // model
     unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &config,
         model_filepath.c_str() );
+    if ( quant ) {
+        if ( ! moshi_lm_quantize( lm, quant ) ) {
+            fprintf( stderr, "error: unknown quant %s\n", quant );
+            exit(-1);
+        }
+    }
 
     // generator
     unref_ptr<moshi_lm_gen_t> gen = moshi_lm_generator( lm );

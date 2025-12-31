@@ -569,15 +569,16 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
         if ( ! st )
             return false;
         ggml_type dtype = safetensor_get_type( st->dtype );
+        ggml_type dst_dtype = loader->quantize? loader->qtype : dtype;
         int n_dims = 2;
         GGML_NE ne( st->shape[1], st->shape[0] / attn->in_projs.size() );
         for ( size_t i = 0; i < attn->in_projs.size(); i++ ) {
-            loader->add_alloc( &attn->in_projs[i]->weight, n_dims, ne, dtype,
+            loader->add_alloc( &attn->in_projs[i]->weight, n_dims, ne, dst_dtype,
                 path + "in_projs." + std::to_string(i) + ".weight" );
             attn->in_projs[i]->bias = NULL;
         }
         // queue initialization
-        loader->add_init( [ attn, st ]( WeightLoader * loader ) {
+        loader->add_init( [ attn, st, dtype, dst_dtype ]( WeightLoader * loader ) {
             auto & scratch_ctx = *loader->scratch;
             auto in_proj_weight = scratch_ctx.load( loader->stf, st );
             int64_t ne0 = in_proj_weight->ne[0];
@@ -588,7 +589,12 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
                 assert( weight );
                 auto view = ggml_view_2d( scratch_ctx, in_proj_weight,
                     ne0, ne1, nb1, i * ne1 * nb1 );
-                scratch_ctx.build_forward_expand( view, weight );
+                if ( dst_dtype == dtype ) {
+                    scratch_ctx.build_forward_expand( view, weight );
+                } else {
+                    auto cast = ggml_cast( scratch_ctx, view, dst_dtype );
+                    scratch_ctx.build_forward_expand( cast, weight );
+                }
             }
             scratch_ctx.compute();
         } );
@@ -608,15 +614,16 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
         if ( ! st )
             return false;
         ggml_type dtype = safetensor_get_type( st->dtype );
+        ggml_type dst_dtype = loader->quantize? loader->qtype : dtype;
         int n_dims = 2;
         GGML_NE ne( st->shape[1], st->shape[0] / attn->out_projs.size() );
         for ( size_t i = 0; i < attn->out_projs.size(); i++ ) {
-            loader->add_alloc( &attn->out_projs[i]->weight, n_dims, ne, dtype,
+            loader->add_alloc( &attn->out_projs[i]->weight, n_dims, ne, dst_dtype,
                 path + "out_projs." + std::to_string(i) + ".weight" );
             attn->out_projs[i]->bias = NULL;
         }
         // queue initialization
-        loader->add_init( [ attn, st ]( WeightLoader * loader ) {
+        loader->add_init( [ attn, st, dtype, dst_dtype ]( WeightLoader * loader ) {
             auto & scratch_ctx = *loader->scratch;
             auto out_proj_weight = scratch_ctx.load( loader->stf, st );
             int64_t ne0 = out_proj_weight->ne[0];
@@ -627,7 +634,12 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
                 assert( weight );
                 auto view = ggml_view_2d( scratch_ctx, out_proj_weight,
                     ne0, ne1, nb1, i * ne1 * nb1 );
-                scratch_ctx.build_forward_expand( view, weight );
+                if ( dst_dtype == dtype ) {
+                    scratch_ctx.build_forward_expand( view, weight );
+                } else {
+                    auto cast = ggml_cast( scratch_ctx, view, dst_dtype );
+                    scratch_ctx.build_forward_expand( cast, weight );
+                }
             }
             scratch_ctx.compute();
         } );

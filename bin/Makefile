@@ -50,17 +50,6 @@ TOOL_LIBS=${LIBS} ${MOSHI_LIBS} ${FFMPEG_LIBS} -lSDL2
 
 DL+=${FFMPEG_DL} ${GGML_DL}
 
-# MARK: Dependencies
-
-${DL_PRE}av%.${DL_EXT}: ${FFMPEG_BIN}/${DL_PRE}av%.${DL_EXT}
-	cp -P $<* .
-
-${DL_PRE}sw%.${DL_EXT}: ${FFMPEG_BIN}/${DL_PRE}sw%.${DL_EXT}
-	cp -P $<* .
-
-${DL_PRE}ggm%.${DL_EXT}: ${GGML_BIN}/${DL_PRE}ggm%.${DL_EXT}
-	cp $< .
-
 # MARK: Library
 
 LIBMOSHI = ${DL_PRE}moshi.${DL_EXT}
@@ -69,6 +58,12 @@ ${LIBMOSHI}: ../src/moshi.cpp ../src/json.cpp ../src/safetensor.cpp ${LIBMOSHI_H
 	g++ -ggdb -O0 -fPIC -shared -o $@ ${CFLAGS} ../src/moshi.cpp ../src/json.cpp ../src/safetensor.cpp ${LIBS}
 
 # MARK: Tools
+
+moshi-dl.json: ../tools/moshi-dl.json
+	cp $< $@
+
+moshi-dl: ../tools/moshi-dl.cpp ${LIBMOSHI} ${HEADERS} ../tools/validate.h ${DL} moshi-dl.json
+	g++ -ggdb -O0 -o $@ ${TOOL_CFLAGS} $< ${TOOL_LIBS} -lcurl -lcrypto
 
 mimi-%: ../tools/mimi-%.cpp ${LIBMOSHI} ${HEADERS} ${DL}
 	g++ -ggdb -O0 -o $@ ${TOOL_CFLAGS} $< ${TOOL_LIBS}

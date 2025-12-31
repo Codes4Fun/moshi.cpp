@@ -566,7 +566,6 @@ class ScratchContext {
                 ggml_backend_tensor_get( sum.src, &fsum, 0, 4 );
                 printf( "%s %f\n", sum.label, fsum );
             }
-            debug_sums.clear();
             // copy results
             for (auto copy : tensor_copies) {
                 auto tensor = ggml_dup_tensor( copy.ctx, copy.src );
@@ -584,6 +583,7 @@ class ScratchContext {
                 ggml_backend_tensor_set( copy.dst, buf.data(), 0, nbytes );
             }
             // cleanup
+            debug_sums.clear();
             ggml_backend_buffer_free( buffer );
             backend_copies.clear();
             copies.clear();

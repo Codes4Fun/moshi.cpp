@@ -20,8 +20,21 @@ struct moshi_scaled_embedding_demux_t {
 
 void get_weights( WeightLoader * loader, std::string path,
         moshi_scaled_embedding_demux_t * m ) {
-    auto n = loader->fetch( &m->weight, path + "weight", (void*)ggml_get_rows );
-    assert( n );
+    if ( loader->quantize ) {
+        if ( loader->qtype == GGML_TYPE_Q4_K ) {
+            auto n = loader->fetch( &m->weight, path + "weight", GGML_TYPE_Q4_0 );
+            assert( n );
+        } else if ( loader->qtype == GGML_TYPE_Q8_K ) {
+            auto n = loader->fetch( &m->weight, path + "weight", GGML_TYPE_Q8_0 );
+            assert( n );
+        } else {
+            auto n = loader->fetch( &m->weight, path + "weight", loader->qtype );
+            assert( n );
+        }
+    } else {
+        auto n = loader->fetch( &m->weight, path + "weight", (void*)ggml_get_rows );
+        assert( n );
+    }
     get_weights( loader, path + "out1.", m->out1 );
     get_weights( loader, path + "out2.", m->out2 );
 }
@@ -66,8 +79,21 @@ struct moshi_scaled_embedding_t {
 
 void get_weights( WeightLoader * loader, std::string path,
         moshi_scaled_embedding_t * m ) {
-    auto n = loader->fetch( &m->weight, path + "weight", (void*)ggml_get_rows );
-    assert( n );
+    if ( loader->quantize ) {
+        if ( loader->qtype == GGML_TYPE_Q4_K ) {
+            auto n = loader->fetch( &m->weight, path + "weight", GGML_TYPE_Q4_0 );
+            assert( n );
+        } else if ( loader->qtype == GGML_TYPE_Q8_K ) {
+            auto n = loader->fetch( &m->weight, path + "weight", GGML_TYPE_Q8_0 );
+            assert( n );
+        } else {
+            auto n = loader->fetch( &m->weight, path + "weight", loader->qtype );
+            assert( n );
+        }
+    } else {
+        auto n = loader->fetch( &m->weight, path + "weight", (void*)ggml_get_rows );
+        assert( n );
+    }
     if ( m->low_rank )
         get_weights( loader, path + "low_rank.", m->low_rank );
 }

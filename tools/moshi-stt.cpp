@@ -16,20 +16,24 @@
 #define SDL_OUT
 
 static void print_usage(const char * program) {
-    fprintf( stderr, "usage: %s [option(s)]\n", program );
-    fprintf( stderr, "\nlistens to sdl audio capture if input not specified.\n" );
-    fprintf( stderr, "outputs to console if output not specified.\n" );
-    fprintf( stderr, "\noption(s):\n" );
-    fprintf( stderr, "  -h,       --help             show this help message\n" );
-    fprintf( stderr, "  -m PATH,  --model-root PATH  path to where all models are stored.\n" );
-    fprintf( stderr, "  -sm PATH, --stt-model PATH   path to stt model.\n" );
-    fprintf( stderr, "  -l,       --list-devices     list hardware and exit.\n" );
-    fprintf( stderr, "  -d NAME,  --device NAME      use named hardware.\n" );
-    fprintf( stderr, "  -o FNAME, --output FNAME     output to text file.\n");
-    fprintf( stderr, "  -i FNAME, --input FNAME      input file can be wav, mp3, ogg, etc.\n");
-    fprintf( stderr, "            --debug            outputs each frames vad and token.\n");
-    fprintf( stderr, "            --threads N        number of CPU threads to use during generation.\n");
-    //fprintf( stderr, "  -s N,     --seed N           seed value.\n" );
+
+    fprintf(stderr, R"(usage: %s [option(s)]
+
+listens to sdl audio capture if input not specified.
+outputs to console if output not specified.
+
+option(s):
+  -h,       --help             show this help message
+  -m PATH,  --model-root PATH  path to where all models are stored.
+  -sm PATH, --stt-model PATH   path to stt model.
+  -l,       --list-devices     list hardware and exit.
+  -d NAME,  --device NAME      use named hardware.
+  -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
+  -o FNAME, --output FNAME     output to text file.
+  -i FNAME, --input FNAME      input file can be wav, mp3, ogg, etc.
+            --debug            outputs each frames vad and token.
+            --threads N        number of CPU threads to use during generation.
+)", program );
     exit(1);
 }
 
@@ -47,6 +51,7 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, signal_handler);
 
     const char * device = NULL;
+    const char * quant = NULL;
     const char * input_filename = NULL;
     const char * output_filename = NULL;
     bool output_debug = false;
@@ -95,6 +100,14 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             device = argv[++i];
+            continue;
+        }
+        if (arg == "-q" || arg == "--quantize") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires type\n", argv[i] );
+                exit(1);
+            }
+            quant = argv[++i];
             continue;
         }
         if (arg == "-o" || arg == "--output") {
@@ -297,6 +310,12 @@ int main(int argc, char *argv[]) {
 
     // model
     unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &stt_config, moshi_filepath.c_str() );
+    if ( quant ) {
+        if ( ! moshi_lm_quantize( lm, quant ) ) {
+            fprintf( stderr, "error: unknown quant %s\n", quant );
+            exit(-1);
+        }
+    }
 
     // generator
     unref_ptr<moshi_lm_gen_t> gen = moshi_lm_generator( lm );
