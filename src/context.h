@@ -666,6 +666,22 @@ class StateContext {
         *ptensor = NULL;
     }
 
+    void fill16( NE ne, ggml_type type, int16_t value, ggml_tensor ** ptensor ) {
+        assert( type == GGML_TYPE_F16 || type == GGML_TYPE_BF16 );
+        states.push_back({ ptensor, type });
+        auto & state = states.back();
+        int64_t nelements = 1;
+        for ( int i = 0; i < GGML_MAX_DIMS; i++ ) {
+            state.ne[i] = ne[i];
+            nelements *= ne[i];
+        }
+        state.data.resize( nelements * 2 );
+        int16_t * data = (int16_t*)state.data.data();
+        for ( int i = 0; i < nelements; i++)
+            data[i] = value;
+        *ptensor = NULL;
+    }
+
     void fill32( NE ne, ggml_type type, int32_t value, ggml_tensor ** ptensor ) {
         assert( type == GGML_TYPE_F32 || type == GGML_TYPE_I32 );
         states.push_back({ ptensor, type });

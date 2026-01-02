@@ -152,6 +152,8 @@ struct moshi_kv_cache_state_t {
     int end_offset;
 };
 
+#define CACHE_BF16
+
 moshi_kv_cache_state_t * moshi_kv_cache_state(
         StateContext * state_ctx,
         int dim_per_head,
@@ -160,8 +162,13 @@ moshi_kv_cache_state_t * moshi_kv_cache_state(
         int batch_size ) {
     auto states = new moshi_kv_cache_state_t;
     NE ne = { dim_per_head, capacity, num_heads, batch_size };
+#ifdef CACHE_BF16
+    state_ctx->fill16( ne, GGML_TYPE_BF16, 0, &states->keys );
+    state_ctx->fill16( ne, GGML_TYPE_BF16, 0, &states->values );
+#else
     state_ctx->fill( ne, 0.f, &states->keys );
     state_ctx->fill( ne, 0.f, &states->values );
+#endif
     return states;
 }
 
@@ -190,6 +197,9 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
         keys->nb[3],
         keys->nb[1] * index
     );
+#ifdef CACHE_BF16
+    k = ggml_cast( ctx, k, GGML_TYPE_BF16 );
+#endif
     cache_0_0 = ggml_cpy( ctx, k, cache_0_0 );
     keys = ggml_view_4d( ctx, cache_0_0,
         keys->ne[0], // D
@@ -212,6 +222,9 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
         values->nb[3],
         values->nb[1] * index
     );
+#ifdef CACHE_BF16
+    v = ggml_cast( ctx, v, GGML_TYPE_BF16 );
+#endif
     cache_1_0 = ggml_cpy( ctx, v, cache_1_0 );
     values = ggml_view_4d( ctx, cache_1_0,
         values->ne[0], // D
