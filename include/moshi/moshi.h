@@ -161,13 +161,18 @@ MOSHI_API int moshi_get_config( moshi_config_t * config, const char * filename )
 
 struct moshi_lm_t;
 
-MOSHI_API moshi_lm_t * moshi_lm_from_files( moshi_context_t * moshi, moshi_config_t * config, const char * filepath );
+MOSHI_API moshi_lm_t * moshi_lm_from_files(
+    moshi_context_t * moshi,
+    moshi_config_t * config,
+    const char * filepath
+);
 MOSHI_API void unref( moshi_lm_t * lm );
 MOSHI_API void moshi_lm_set_delay_steps( moshi_lm_t * lm, int delay_steps );
 MOSHI_API int moshi_lm_get_max_delay( moshi_lm_t * lm );
 MOSHI_API int moshi_lm_get_delay_steps( moshi_lm_t * lm );
 MOSHI_API bool moshi_lm_quantize( moshi_lm_t * lm, const char * quant );
 MOSHI_API int moshi_lm_load( moshi_lm_t * lm );
+MOSHI_API void moshi_lm_save_gguf( moshi_lm_t * lm, const char * filepath );
 
 // MARK: Generator
 

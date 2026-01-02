@@ -29,6 +29,7 @@ option(s):
   -l,       --list-devices     list hardware and exit.
   -d NAME,  --device NAME      use named hardware.
   -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
+  -g,       --gguf-caching      loads gguf if exists, saves gguf if it does not.
   -o FNAME, --output FNAME     output to text file.
   -i FNAME, --input FNAME      input file can be wav, mp3, ogg, etc.
             --debug            outputs each frames vad and token.
@@ -52,6 +53,7 @@ int main(int argc, char *argv[]) {
 
     const char * device = NULL;
     const char * quant = NULL;
+    bool gguf_caching = false;
     const char * input_filename = NULL;
     const char * output_filename = NULL;
     bool output_debug = false;
@@ -110,6 +112,10 @@ int main(int argc, char *argv[]) {
             quant = argv[++i];
             continue;
         }
+        if (arg == "-g" || arg == "--gguf-caching" ) {
+            gguf_caching = true;
+            continue;
+        }
         if (arg == "-o" || arg == "--output") {
             if (i + 1 >= argc) {
                 fprintf( stderr, "error: \"%s\" requires filepath to output file\n", argv[i] );
@@ -157,6 +163,21 @@ int main(int argc, char *argv[]) {
     /////////////////////////
     // MARK: Validate Args
     /////////////////////////
+
+    if ( quant ) {
+        uint32_t uquant = *(uint32_t*)quant;
+        switch (uquant) {
+        case 0x305f3471: // "q4_0"
+            break;
+        case 0x6b5f3471: // "q4_k"
+            break;
+        case 0x305f3871: // "q8_0"
+            break;
+        default:
+            fprintf( stderr, "error: invalid quant %s\n", quant );
+            exit(-1);
+        }
+    }
 
     const char * ext = NULL;
     if ( input_filename ) {
@@ -297,6 +318,36 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    std::string model_gguf = "";
+    if ( gguf_caching ) {
+        if ( quant ) {
+            uint32_t uquant = *(uint32_t*)quant;
+            switch (uquant) {
+            case 0x305f3471: // "q4_0"
+                break;
+            case 0x6b5f3471: // "q4_k"
+                break;
+            case 0x305f3871: // "q8_0"
+                break;
+            default:
+                fprintf( stderr, "error: invalid quant %s\n", quant );
+                exit(-1);
+            }
+            model_gguf = moshi_filepath + "." + quant + ".gguf";
+            if ( file_exists( model_gguf.c_str() ) ) {
+                moshi_filepath = model_gguf;
+                model_gguf = "";
+                quant = NULL;
+            }
+        } else {
+            model_gguf = moshi_filepath + ".gguf";
+            if ( file_exists( model_gguf.c_str() ) ) {
+                moshi_filepath = model_gguf;
+                model_gguf = "";
+            }
+        }
+    }
+
     ///////////////////////////////////////////////
     // MARK: Open / Allocate
     ///////////////////////////////////////////////
@@ -309,7 +360,8 @@ int main(int argc, char *argv[]) {
     }
 
     // model
-    unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &stt_config, moshi_filepath.c_str() );
+    unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &stt_config,
+        moshi_filepath.c_str() );
     if ( quant ) {
         if ( ! moshi_lm_quantize( lm, quant ) ) {
             fprintf( stderr, "error: unknown quant %s\n", quant );
@@ -437,6 +489,9 @@ int main(int argc, char *argv[]) {
 
     // model
     moshi_lm_load( lm );
+    if ( model_gguf.size() ) {
+        moshi_lm_save_gguf( lm, model_gguf.c_str() );
+    }
 
     auto load_end = ggml_time_ms();
     printf("done loading. %f\n", (load_end - load_start) / 1000.f);

@@ -57,19 +57,19 @@ ggml_tensor * moshi_EuclideanCodebook_encode(
 
 void get_weights( WeightLoader * loader, std::string path,
         moshi_EuclideanCodebook_t * codebook ) {
-    WeightLoader::bindings_t bindings;
-    bindings.push_back({ &codebook->embedding, path + "embedding" });
-    auto n = loader->fetch(bindings, [path, codebook] (WeightLoader * loader) {
+    std::string name = path + "embedding";
+    if ( loader->is_gguf ) {
+        codebook->embedding = loader->get_tensor( name );
+        assert( codebook->embedding );
+    } else {
         auto sum_st = loader->find( path + "embedding_sum" );
-        if ( ! sum_st )
-            return false;
+        assert( sum_st );
         auto usage_st = loader->find( path + "cluster_usage" );
-        if ( ! usage_st )
-            return false;
+        assert( usage_st );
 
         NE ne;
         int n_dims = safetensor_get_shape( sum_st, ne );
-        loader->add_alloc( &codebook->embedding, n_dims, ne, GGML_TYPE_F32, path + "embedding" );
+        loader->add_alloc( &codebook->embedding, n_dims, ne, GGML_TYPE_F32, name );
 
         loader->add_init( [ sum_st, usage_st, codebook ] ( WeightLoader * loader ) {
             auto & scratch_ctx = *loader->scratch;
@@ -81,10 +81,7 @@ void get_weights( WeightLoader * loader, std::string path,
             scratch_ctx.build_forward_expand( embedding, codebook->embedding );
             scratch_ctx.compute();
         });
-
-        return true;
-    } );
-    assert( n );
+    }
 }
 
 

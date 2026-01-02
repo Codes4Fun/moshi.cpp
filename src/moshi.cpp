@@ -632,29 +632,30 @@ std::string tokenizer_id_to_piece( tokenizer_t * tok, int token ) {
 // MARK: LM
 
 struct moshi_lm_t {
+    std::string filepath;
     bool uses_cross;
     moshi_lmmodel_t * model;
-    unref_ptr<SafeTensorFile> stf;
     own_ptr<WeightLoader> weights;
-    own_ptr<WeightLoader> cond_weights;
     own_ptr<conditioners_t> cond;
     bool second_stream_ahead;
 };
 
-moshi_lm_t * moshi_lm_from_files( moshi_context_t * moshi, moshi_config_t * config, const char * filepath ) {
+moshi_lm_t * moshi_lm_from_files(
+    moshi_context_t * moshi,
+    moshi_config_t * config,
+    const char * filepath
+) {
     auto lm = new moshi_lm_t;
 
-    lm->stf = SafeTensorFile::from_file( filepath );
-    if ( ! lm->stf )
-        return NULL;
+    lm->filepath = filepath;
 
-    lm->weights = WeightLoader::from_safetensor( lm->stf, moshi->scratch_cpu, moshi->backend );
-    if ( ! lm->weights )
-        return NULL;
-
-    if ( config->cross_attention ) {
-        lm->cond_weights = WeightLoader::from_safetensor( lm->stf, moshi->scratch_cpu, moshi->backend );
-        if ( ! lm->cond_weights )
+    if ( lm->filepath.ends_with( ".safetensors" ) ) {
+        lm->weights = WeightLoader::from_safetensor( filepath, moshi->scratch_cpu, moshi->backend );
+        if ( ! lm->weights )
+            return NULL;
+    } else {
+        lm->weights = WeightLoader::from_gguf( filepath, moshi->scratch_cpu, moshi->backend );
+        if ( ! lm->weights )
             return NULL;
     }
 
@@ -686,15 +687,12 @@ bool moshi_lm_quantize( moshi_lm_t * lm, const char * quant ) {
     uint32_t uquant = *(uint32_t*)quant;
     ggml_type qtype = (ggml_type)0;
     switch (uquant) {
-        case 0x305f3451: // "Q4_0"
         case 0x305f3471: // "q4_0"
             qtype = GGML_TYPE_Q4_0;
             break;
-        case 0x4b5f3451: // "Q4_K"
         case 0x6b5f3471: // "q4_k"
             qtype = GGML_TYPE_Q4_K;
             break;
-        case 0x305f3851: // "Q8_0"
         case 0x305f3871: // "q8_0"
             qtype = GGML_TYPE_Q8_0;
             break;
@@ -707,17 +705,27 @@ bool moshi_lm_quantize( moshi_lm_t * lm, const char * quant ) {
 }
 
 int moshi_lm_load( moshi_lm_t * lm ) {
-    get_weights( lm->weights, "lm.", lm->model );
-    lm->weights->load();
+    if ( lm->weights->is_gguf ) {
+        lm->weights->load_gguf( );
+    }
 
+    get_weights( lm->weights, "lm.", lm->model );
     if ( lm->uses_cross ) {
         lm->cond = new conditioners_t;
-        get_weights( lm->cond_weights, lm->cond );
-        lm->cond_weights->load();
+        get_weights( lm->weights, lm->cond );
+    }
+
+    if ( ! lm->weights->is_gguf ) {
+        lm->weights->load();
     }
 
     return 0;
 }
+
+void moshi_lm_save_gguf( moshi_lm_t * lm, const char * filepath ) {
+    lm->weights->save_gguf( filepath );
+}
+
 
 // MARK: Generator
 
@@ -851,6 +859,7 @@ int moshi_lm_receive( moshi_lm_gen_t * gen, int & text_token, std::vector<int16_
 }
 
 void moshi_lm_send2( moshi_lm_gen_t * gen, std::vector<int16_t> & audio_tokens ) {
+    gen->audio_tokens.resize( audio_tokens.size() );
     for ( int i = 0; i < audio_tokens.size(); ++i )
         gen->audio_tokens[i] = audio_tokens[i];
 }

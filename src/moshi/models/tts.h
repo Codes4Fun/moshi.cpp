@@ -15,14 +15,23 @@ struct conditioners_t {
 
 void get_weights( WeightLoader * loader, conditioners_t * cond ) {
     // TODO: remove prefix "lm"
-    loader->fetch( &cond->cfg_embed_weight, "lm.condition_provider.conditioners.cfg.embed.weight" );
-    loader->fetch( &cond->cfg_learnt_padding, "lm.condition_provider.conditioners.cfg.learnt_padding" );
-    loader->fetch( &cond->cfg_output_proj_weight, "lm.condition_provider.conditioners.cfg.output_proj.weight" );
-    loader->fetch( &cond->control_embed_weight, "lm.condition_provider.conditioners.control.embed.weight" );
-    loader->fetch( &cond->control_learnt_padding, "lm.condition_provider.conditioners.control.learnt_padding" );
-    loader->fetch( &cond->control_output_proj_weight, "lm.condition_provider.conditioners.control.output_proj.weight" );
-    loader->fetch( &cond->speaker_wavs_learnt_padding, "lm.condition_provider.conditioners.speaker_wavs.learnt_padding" );
-    loader->fetch( &cond->speaker_wavs_output_proj_weight, "lm.condition_provider.conditioners.speaker_wavs.output_proj.weight" );
+    bool r;
+    r = loader->fetch( &cond->cfg_embed_weight, "lm.condition_provider.conditioners.cfg.embed.weight" );
+    assert( r );
+    r = loader->fetch( &cond->cfg_learnt_padding, "lm.condition_provider.conditioners.cfg.learnt_padding" );
+    assert( r );
+    r = loader->fetch( &cond->cfg_output_proj_weight, "lm.condition_provider.conditioners.cfg.output_proj.weight" );
+    assert( r );
+    r = loader->fetch( &cond->control_embed_weight, "lm.condition_provider.conditioners.control.embed.weight" );
+    assert( r );
+    r = loader->fetch( &cond->control_learnt_padding, "lm.condition_provider.conditioners.control.learnt_padding" );
+    assert( r );
+    r = loader->fetch( &cond->control_output_proj_weight, "lm.condition_provider.conditioners.control.output_proj.weight" );
+    assert( r );
+    r = loader->fetch( &cond->speaker_wavs_learnt_padding, "lm.condition_provider.conditioners.speaker_wavs.learnt_padding" );
+    assert( r );
+    r = loader->fetch( &cond->speaker_wavs_output_proj_weight, "lm.condition_provider.conditioners.speaker_wavs.output_proj.weight" );
+    assert( r );
 }
 
 struct voice_t {

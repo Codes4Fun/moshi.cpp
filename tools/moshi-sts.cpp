@@ -23,7 +23,8 @@ options:
                                 directory, or working directory.
   -l,       --list-devices      list hardware and exits.
   -d NAME,  --device NAME       use named hardware.
-  -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
+  -q QUANT, --quantize QUANT    convert weights to: q8_0, q4_0, q4_k
+  -g,       --gguf-caching      loads gguf if exists, saves gguf if it does not.
   -s N,     --seed N            seed value.
   -t N,     --temperature N     consistency vs creativity, default 0.8
             --threads N         number of CPU threads to use during generation.
@@ -51,6 +52,7 @@ int main(int argc, char *argv[]) {
     std::string model_path = "kyutai/moshika-pytorch-bf16";
     const char * device = NULL;
     const char * quant = NULL;
+    bool gguf_caching = false;
     int n_threads = 4;
     int seed = (int)time(NULL);
     float depth_temperature = 0.8f;
@@ -98,6 +100,10 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             quant = argv[++i];
+            continue;
+        }
+        if (arg == "-g" || arg == "--gguf-caching" ) {
+            gguf_caching = true;
             continue;
         }
         if (arg == "-s" || arg == "--seed") {
@@ -187,6 +193,51 @@ int main(int argc, char *argv[]) {
 
     printf( "loading...\n" );
 
+    if ( quant ) {
+        uint32_t uquant = *(uint32_t*)quant;
+        switch (uquant) {
+        case 0x305f3471: // "q4_0"
+            break;
+        case 0x6b5f3471: // "q4_k"
+            break;
+        case 0x305f3871: // "q8_0"
+            break;
+        default:
+            fprintf( stderr, "error: invalid quant %s\n", quant );
+            exit(-1);
+        }
+    }
+
+    std::string model_gguf = "";
+    if ( gguf_caching ) {
+        if ( quant ) {
+            uint32_t uquant = *(uint32_t*)quant;
+            switch (uquant) {
+            case 0x305f3471: // "q4_0"
+                break;
+            case 0x6b5f3471: // "q4_k"
+                break;
+            case 0x305f3871: // "q8_0"
+                break;
+            default:
+                fprintf( stderr, "error: invalid quant %s\n", quant );
+                exit(-1);
+            }
+            model_gguf = model_filepath + "." + quant + ".gguf";
+            if ( file_exists( model_gguf.c_str() ) ) {
+                model_filepath = model_gguf;
+                model_gguf = "";
+                quant = NULL;
+            }
+        } else {
+            model_gguf = model_filepath + ".gguf";
+            if ( file_exists( model_gguf.c_str() ) ) {
+                model_filepath = model_gguf;
+                model_gguf = "";
+            }
+        }
+    }
+
     // model
     unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &config,
         model_filepath.c_str() );
@@ -222,6 +273,9 @@ int main(int argc, char *argv[]) {
 
     // model
     moshi_lm_load( lm );
+    if ( model_gguf.size() ) {
+        moshi_lm_save_gguf( lm, model_gguf.c_str() );
+    }
 
     // encoder
     unref_ptr<mimi_encode_context_t> encoder;

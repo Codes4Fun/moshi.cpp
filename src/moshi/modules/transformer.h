@@ -557,17 +557,24 @@ ggml_tensor * moshi_streaming_multihead_attention(
 }
 
 void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn ) {
-    WeightLoader::bindings_t in_projs_bindings;
-    for ( size_t i = 0; i < attn->in_projs.size(); i++ ) {
-        in_projs_bindings.push_back({
-            &attn->in_projs[i]->weight,
-            path + "in_projs." + std::to_string(i) + ".weight"
-        });
+    if ( loader->is_gguf ) {
+        for ( size_t i = 0; i < attn->in_projs.size(); i++ ) {
+            std::string name = path + "in_projs." + std::to_string(i) + ".weight";
+            attn->in_projs[i]->weight = loader->get_tensor( name );
+            assert( attn->in_projs[i]->weight );
+            attn->in_projs[i]->bias = NULL;
+        }
+        for ( size_t i = 0; i < attn->out_projs.size(); i++ ) {
+            std::string name = path + "out_projs." + std::to_string(i) + ".weight";
+            attn->out_projs[i]->weight = loader->get_tensor( name );
+            assert( attn->out_projs[i]->weight );
+            attn->out_projs[i]->bias = NULL;
+        }
+        return;
     }
-    auto n = loader->fetch(in_projs_bindings, [path, attn]( WeightLoader * loader ) {
+    {
         auto st = loader->find( path + "in_proj_weight" );
-        if ( ! st )
-            return false;
+        assert( st );
         ggml_type dtype = safetensor_get_type( st->dtype );
         ggml_type dst_dtype = loader->quantize? loader->qtype : dtype;
         int n_dims = 2;
@@ -598,21 +605,11 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
             }
             scratch_ctx.compute();
         } );
-        return true;
-    } );
-    assert( n );
-
-    WeightLoader::bindings_t out_projs_bindings;
-    for ( size_t i = 0; i < attn->out_projs.size(); i++ ) {
-        out_projs_bindings.push_back({
-            &attn->out_projs[i]->weight,
-            path + "out_projs." + std::to_string(i) + ".weight"
-        });
     }
-    n = loader->fetch(out_projs_bindings, [path, attn]( WeightLoader * loader ) {
+
+    {
         auto st = loader->find( path + "out_proj.weight" );
-        if ( ! st )
-            return false;
+        assert( st );
         ggml_type dtype = safetensor_get_type( st->dtype );
         ggml_type dst_dtype = loader->quantize? loader->qtype : dtype;
         int n_dims = 2;
@@ -643,9 +640,7 @@ void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn )
             }
             scratch_ctx.compute();
         } );
-        return true;
-    } );
-    assert( n );
+    }
 }
 
 /*************************************************************\
