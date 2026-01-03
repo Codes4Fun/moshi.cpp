@@ -11,8 +11,6 @@
 #include "sdl_helper.h"
 #include "util.h"
 
-#define DEFAULT_BIG
-
 static void print_usage(const char * program) {
     fprintf( stderr, R"(usage: %s [option(s)] \"hello world\"
 
@@ -20,18 +18,30 @@ plays using sdl if output not specified.
 
 option(s):
   -h,       --help             show this help message
-  -m PATH,  --model-root PATH  path to where all models are stored.
-  -tm PATH, --tts-model PATH   path to tts model.
+
   -l,       --list-devices     list hardware and exit.
   -d NAME,  --device NAME      use named hardware.
+            --threads N        number of CPU threads.
+
+  -r PATH,  --model-root PATH  path to where all kyutai models are stored and
+                               replaces MODEL_CACHE environment variable. the
+                               models at root are in subdirectories of
+                               'organization/model'
+  -m PATH,  --model PATH       path to where model is, can be relative to the
+                               MODEL_CACHE environment variable, or program
+                               directory, or working directory. by default is
+                               'kyutai/tts-1.6b-en_fr'
   -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
   -g,       --gguf-caching     loads gguf if exists, saves gguf if it does not.
+                               model is saved alongside the original
+                               safetensors file.
+  -v FNAME, --voice FNAME      path to voice model/prefix.
+
   -o FNAME, --output FNAME     output to file, can be mimi, wav, mp3, ogg, etc.
   -i FNAME, --input FNAME      input text file.
+
   -s N,     --seed N           seed value.
-  -v FNAME, --voice FNAME      path to voice model/prefix.
   -t N,     --temperature N    consistency vs creativity, default 0.6
-            --threads N        number of CPU threads to use during generation.
             --bench            sets defaults for benching.
 )", program );
     exit(1);
@@ -89,26 +99,26 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, signal_handler);
 
     const char * device = NULL;
-    const char * quant = NULL;
-    bool gguf_caching = false;
-    const char * input_filename = NULL;
-    const char * output_filename = NULL;
+    int n_threads = 0;
+
     const char * model_cache = getenv("MODEL_CACHE");
     std::string model_root = model_cache? model_cache : "";
-#ifdef DEFAULT_BIG
     std::string tts_path = "kyutai/tts-1.6b-en_fr";
-#else
-    std::string tts_path = "kyutai/tts-0.75b-en-public";
-#endif
+    const char * quant = NULL;
+    bool gguf_caching = false;
     std::string voice_filename;
+
+    const char * input_filename = NULL;
+    const char * output_filename = NULL;
+
     bool seed_set = false;
     int seed = (int)time(NULL);
-    const char * text = NULL;
     bool temperature_set = false;
     float text_temperature = 0.6f;
     float depth_temperature = 0.6f;
-    int n_threads = 0;
     bool bench = false;
+
+    const char * text = NULL;
 
     //////////////////////
     // MARK: Parse Args
@@ -118,30 +128,6 @@ int main(int argc, char *argv[]) {
         std::string arg = argv[i];
         if (arg == "-h" || arg == "--help") {
             print_usage(argv[0]);
-        }
-        if (arg == "-m" || arg == "--model-root") {
-            if (i + 1 >= argc) {
-                fprintf( stderr, "error: \"%s\" requires path to models\n", argv[i] );
-                exit(1);
-            }
-            model_root = argv[++i];
-            continue;
-        }
-        if (arg == "-tm" || arg == "--tts_model") {
-            if (i + 1 >= argc) {
-                fprintf( stderr, "error: \"%s\" requires filepath to model\n", argv[i] );
-                exit(1);
-            }
-            tts_path = argv[++i];
-            continue;
-        }
-        if (arg == "-v" || arg == "--voice") {
-            if (i + 1 >= argc) {
-                fprintf( stderr, "error: \"%s\" requires filepath to voice\n", argv[i] );
-                exit(1);
-            }
-            voice_filename = argv[++i];
-            continue;
         }
         if (arg == "-l" || arg == "--list-devices") {
             list_devices();
@@ -154,6 +140,30 @@ int main(int argc, char *argv[]) {
             device = argv[++i];
             continue;
         }
+        if (arg == "--threads") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            n_threads = std::stoi(argv[++i]);
+            continue;
+        }
+        if (arg == "-r" || arg == "--model-root") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires path to models\n", argv[i] );
+                exit(1);
+            }
+            model_root = argv[++i];
+            continue;
+        }
+        if (arg == "-m" || arg == "--model") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires filepath to model\n", argv[i] );
+                exit(1);
+            }
+            tts_path = argv[++i];
+            continue;
+        }
         if (arg == "-q" || arg == "--quantize") {
             if (i + 1 >= argc) {
                 fprintf( stderr, "error: \"%s\" requires type\n", argv[i] );
@@ -164,6 +174,14 @@ int main(int argc, char *argv[]) {
         }
         if (arg == "-g" || arg == "--gguf-caching" ) {
             gguf_caching = true;
+            continue;
+        }
+        if (arg == "-v" || arg == "--voice") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires filepath to voice\n", argv[i] );
+                exit(1);
+            }
+            voice_filename = argv[++i];
             continue;
         }
         if (arg == "-o" || arg == "--output") {
@@ -199,14 +217,6 @@ int main(int argc, char *argv[]) {
             temperature_set = true;
             text_temperature = (float) std::stod(argv[++i]);
             depth_temperature = text_temperature;
-            continue;
-        }
-        if (arg == "--threads") {
-            if (i + 1 >= argc) {
-                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
-                exit(1);
-            }
-            n_threads = std::stoi(argv[++i]);
             continue;
         }
         if (arg == "--bench") {
@@ -448,18 +458,6 @@ int main(int argc, char *argv[]) {
     std::string model_gguf = "";
     if ( gguf_caching ) {
         if ( quant ) {
-            uint32_t uquant = *(uint32_t*)quant;
-            switch (uquant) {
-            case 0x305f3471: // "q4_0"
-                break;
-            case 0x6b5f3471: // "q4_k"
-                break;
-            case 0x305f3871: // "q8_0"
-                break;
-            default:
-                fprintf( stderr, "error: invalid quant %s\n", quant );
-                exit(-1);
-            }
             model_gguf = moshi_filepath + "." + quant + ".gguf";
             if ( file_exists( model_gguf.c_str() ) ) {
                 moshi_filepath = model_gguf;

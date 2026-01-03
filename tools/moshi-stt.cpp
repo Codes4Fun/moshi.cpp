@@ -12,7 +12,6 @@
 #include "sdl_helper.h"
 #include "util.h"
 
-//#define DEFAULT_BIG
 #define SDL_OUT
 
 static void print_usage(const char * program) {
@@ -24,16 +23,28 @@ outputs to console if output not specified.
 
 option(s):
   -h,       --help             show this help message
-  -m PATH,  --model-root PATH  path to where all models are stored.
-  -sm PATH, --stt-model PATH   path to stt model.
+
   -l,       --list-devices     list hardware and exit.
   -d NAME,  --device NAME      use named hardware.
+            --threads N        number of CPU threads to use during generation.
+
+  -r PATH,  --model-root PATH  path to where all kyutai models are stored and
+                               replaces MODEL_CACHE environment variable. the
+                               models at root are in subdirectories of
+                               'organization/model'
+  -m PATH,  --model PATH       path to where model is, can be relative to the
+                               MODEL_CACHE environment variable, or program
+                               directory, or working directory. by default is
+                               'kyutai/stt-1b-en_fr-candle'
   -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
-  -g,       --gguf-caching      loads gguf if exists, saves gguf if it does not.
+  -g,       --gguf-caching     loads gguf if exists, saves gguf if it does not.
+                               model is saved alongside the original
+                               safetensors file.
+
   -o FNAME, --output FNAME     output to text file.
   -i FNAME, --input FNAME      input file can be wav, mp3, ogg, etc.
+
             --debug            outputs each frames vad and token.
-            --threads N        number of CPU threads to use during generation.
 )", program );
     exit(1);
 }
@@ -52,21 +63,21 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, signal_handler);
 
     const char * device = NULL;
-    const char * quant = NULL;
-    bool gguf_caching = false;
-    const char * input_filename = NULL;
-    const char * output_filename = NULL;
-    bool output_debug = false;
+    int n_threads = 0;
+
     const char * model_cache = getenv("MODEL_CACHE");
     std::string model_root = model_cache? model_cache : "";
-#ifdef DEFAULT_BIG
-    std::string stt_path = "kyutai/stt-2.6b-en";
-#else
     std::string stt_path = "kyutai/stt-1b-en_fr-candle";
-#endif
+    const char * quant = NULL;
+    bool gguf_caching = false;
+
+    const char * input_filename = NULL;
+    const char * output_filename = NULL;
+
     int seed = (int)time(NULL);
+    bool output_debug = false;
+
     bool use_sdl = false;
-    int n_threads = 0;
 
     //////////////////////
     // MARK: Parse Args
@@ -77,22 +88,6 @@ int main(int argc, char *argv[]) {
         if (arg == "-h" || arg == "--help") {
             print_usage(argv[0]);
         }
-        if (arg == "-m" || arg == "--model-root") {
-            if (i + 1 >= argc) {
-                fprintf( stderr, "error: \"%s\" requires path to models\n", argv[i] );
-                exit(1);
-            }
-            model_root = argv[++i];
-            continue;
-        }
-        if (arg == "-sm" || arg == "--stt_model") {
-            if (i + 1 >= argc) {
-                fprintf( stderr, "error: \"%s\" requires filepath to model\n", argv[i] );
-                exit(1);
-            }
-            stt_path = argv[++i];
-            continue;
-        }
         if (arg == "-l" || arg == "--list-devices") {
             list_devices();
         }
@@ -102,6 +97,30 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             device = argv[++i];
+            continue;
+        }
+        if (arg == "--threads") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            n_threads = std::stoi(argv[++i]);
+            continue;
+        }
+        if (arg == "-r" || arg == "--model-root") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires path to models\n", argv[i] );
+                exit(1);
+            }
+            model_root = argv[++i];
+            continue;
+        }
+        if (arg == "-m" || arg == "--model") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires filepath to model\n", argv[i] );
+                exit(1);
+            }
+            stt_path = argv[++i];
             continue;
         }
         if (arg == "-q" || arg == "--quantize") {
@@ -138,14 +157,6 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             seed = std::stoi(argv[++i]);
-            continue;
-        }
-        if (arg == "--threads") {
-            if (i + 1 >= argc) {
-                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
-                exit(1);
-            }
-            n_threads = std::stoi(argv[++i]);
             continue;
         }
         if (arg == "--debug") {
@@ -321,18 +332,6 @@ int main(int argc, char *argv[]) {
     std::string model_gguf = "";
     if ( gguf_caching ) {
         if ( quant ) {
-            uint32_t uquant = *(uint32_t*)quant;
-            switch (uquant) {
-            case 0x305f3471: // "q4_0"
-                break;
-            case 0x6b5f3471: // "q4_k"
-                break;
-            case 0x305f3871: // "q8_0"
-                break;
-            default:
-                fprintf( stderr, "error: invalid quant %s\n", quant );
-                exit(-1);
-            }
             model_gguf = moshi_filepath + "." + quant + ".gguf";
             if ( file_exists( model_gguf.c_str() ) ) {
                 moshi_filepath = model_gguf;

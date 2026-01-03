@@ -29,7 +29,7 @@
   "conditioners": {},
   "cross_attention": false,
   "model_type": "moshi",
-  "tokenizer_name": "tokenizer_spm_8k_en_fr_audio.model",
+  "tokenizer_name": "tokenizer_spm_32k_3.model",
   "mimi_name": "tokenizer-e351c8d8-checkpoint125.safetensors",
   "moshi_name": "model.safetensors"
 }

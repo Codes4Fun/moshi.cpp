@@ -52,6 +52,10 @@ bool is_abs_or_rel( std::string & path ) {
         return false;
     if ( path[0] == '/' )
         return true; // absolute
+#if _WIN32
+    if ( size < 2 || path[1] == ':' )
+        return true; // absolute
+#endif
     if ( path[0] != '.' )
         return false;
     if ( size < 2 ) // "."
