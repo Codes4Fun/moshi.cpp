@@ -149,7 +149,6 @@ ggml_tensor * moshi_apply_weights_per_step_gating(
 struct moshi_kv_cache_state_t {
     ggml_tensor * keys;
     ggml_tensor * values;
-    int end_offset;
 };
 
 #define CACHE_BF16
@@ -170,10 +169,6 @@ moshi_kv_cache_state_t * moshi_kv_cache_state(
     state_ctx->fill( ne, 0.f, &states->values );
 #endif
     return states;
-}
-
-void init( moshi_kv_cache_state_t * state ) {
-    state->end_offset = 0;
 }
 
 std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
@@ -336,8 +331,6 @@ moshi_smha_state_t * moshi_smha_state( StateContext * state_ctx,
 void init( moshi_smha_state_t * state ) {
     state->offset = 0;
     state->cache_ready = false;
-    if ( state->kv_cache )
-        init( state->kv_cache );
 }
 
 void cache_kv( ggml_context * ctx, moshi_smha_state_t * state,
@@ -398,7 +391,9 @@ ggml_tensor * moshi_streaming_multihead_attention(
         ggml_tensor * query,
         ggml_tensor * key,
         ggml_tensor * value,
-        ggml_tensor * attn_bias = NULL ) {
+        ggml_tensor * attn_bias = NULL,
+        timestep_embedding_t * tsemb = NULL
+    ) {
     CAPTURE_GROUP( "multihead_attention" );
 
     int T = (int) query->ne[1];
@@ -532,8 +527,7 @@ ggml_tensor * moshi_streaming_multihead_attention(
     q = ggml_permute( ctx, q, 0, 2, 1, 3 );
 
     if ( attn->rope_max_period ) {
-        std::tie(q, k) = moshi_apply_rope( ctx, q, k, offset,
-            attn->rope_max_period, false );
+        std::tie(q, k) = moshi_apply_rope( ctx, q, k, tsemb, false );
     }
 
     if ( attn->causal && ! attn->cross_attention ) {
@@ -722,6 +716,7 @@ ggml_tensor * moshi_streaming_transformer_layer(
         moshi_streaming_transformer_layer_state_t * states,
         ggml_tensor * x,
         ggml_tensor * attn_bias,
+        timestep_embedding_t * tsemb,
         ggml_tensor * cross_attention_src = NULL) {
 
     //////////// x = layer._sa_block(x)
@@ -734,7 +729,7 @@ ggml_tensor * moshi_streaming_transformer_layer(
 
     auto update = moshi_streaming_multihead_attention( ctx,
         layer->self_attn, states->self_attn,
-        nx, nx, nx, attn_bias );
+        nx, nx, nx, attn_bias, tsemb );
 
     if ( layer->layer_scale_1 ) {
         update = moshi_layer_scale( ctx, layer->layer_scale_1, update );
@@ -748,7 +743,7 @@ ggml_tensor * moshi_streaming_transformer_layer(
         //update = layer.cross_attention(nx, cross_attention_src, cross_attention_src)
         update = moshi_streaming_multihead_attention( ctx,
             layer->cross_attention, states->cross_attention,
-            nx, cross_attention_src, cross_attention_src, NULL );
+            nx, cross_attention_src, cross_attention_src, NULL, tsemb );
 
         x = ggml_add( ctx, x, update );
     }
@@ -875,12 +870,20 @@ ggml_tensor * moshi_streaming_transformer(
     int64_t T = x->ne[1];
     auto attn_bias = calculate_attn_bias( ctx, attn, T, offset, &m->pattern );
 
+    auto rope_max_period = m->layers[0]->self_attn->rope_max_period;
+    timestep_embedding_t tsemb = { NULL, NULL };
+    if ( rope_max_period ) {
+        auto toffset = ctx.constant( (float)offset );
+        int64_t D = m->layers[0]->self_attn->embed_dim / m->layers[0]->self_attn->num_heads;
+        moshi_get_timestep_embedding( ctx, (int)T, (int)D, toffset, rope_max_period, tsemb );
+    }
+
     for ( size_t idx = 0; idx < m->layers.size(); idx++ ) {
         CAPTURE_GROUP( "layer." + std::to_string(idx) );
         auto layer = m->layers[idx];
         auto layer_states = states->layers[idx];
         x = moshi_streaming_transformer_layer( ctx, layer, layer_states, x,
-                attn_bias, cross_attention_src );
+                attn_bias, &tsemb, cross_attention_src );
     }
 
     return x;

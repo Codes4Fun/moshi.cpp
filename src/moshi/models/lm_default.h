@@ -79,6 +79,12 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
     if ( config->dep_q > 0 ) {
         lm_depformer = new moshi_streaming_transformer_t;
         lm_depformer->layers.resize( config->depformer_num_layers );
+        int rope_max_period = 0;
+        if ( config->depformer_pos_emb == "rope" ) {
+            rope_max_period = (int)config->depformer_max_period;
+        } else {
+            assert( config->depformer_pos_emb == "none" );
+        }
         for ( int64_t i = 0; i < config->depformer_num_layers; i++ ) {
             auto layer = new moshi_streaming_transformer_layer_t{
                 /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
@@ -89,7 +95,7 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
                     /*.cross_attention=*/ false,
                     /*.cache_cross_attention=*/ true,
                     /*.causal=*/ config->causal,
-                    /*.rope_max_period=*/ (int)config->depformer_max_period,
+                    /*.rope_max_period=*/ rope_max_period,
                     /*.context=*/ (int)config->depformer_context,
                     /*.weights_per_step=*/ (int)config->depformer_weights_per_step_schedule.size(),
                     /*.weights_per_step_schedule=*/ {},
