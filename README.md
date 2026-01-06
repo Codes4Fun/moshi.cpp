@@ -17,7 +17,11 @@ There are multiple tools that demonstrate different components:
 * moshi-stt - demonstrates audio inputs to text outputs
 * moshi-sts - demonstrates audio inputs to audio (and text) outputs
 
-TODO: GGUF/quantization support, integrate llama.cpp to implement an unmute like program, add a gui.
+There are aria2c download scripts to make it easier to download tested models.
+
+The tools support quantization of the safetensor models and caching of gguf files via commmand line, `-g` to cache a gguf which is several times faster to load than the safetensors but will consume more drive space. Use `-q q8_0` or `q q4_k` to quantize, the q4_k can take a while to convert, several minutes for some models, so it's best to use those with `-g` to save gguf versions, they also perform a bit faster. The largest models, moshika and moshiko, can run on 8gb of vram with q4_k, but they do not perform fast enough on the hardware I've tested with that amount of ram.
+
+What is left todo is more performance optimizations to support lower end hardware. Python moshi is over 5 times faster than moshi.cpp but uses cuda graphs. Without those cuda graphs moshi.cpp is over twice as fast, so there seems to be a lot of room to improve performance.
 
 ### Performance / Optimizations
 
@@ -183,6 +187,7 @@ Vulkan benchmarks:
 | make   | name               | driver | os    | tts fps | stt fps |
 |--------|--------------------|--------|-------|---------|---------|
 | NVIDIA | RTX 4090           | Vulkan | linux |   23.26 |   43.41 |
+|    AMD | Radeon RX 7900 XT  | Vulkan | win11 |   14.12 |   19.76 |
 | NVIDIA | GTX 2070           | Vulkan | linux |   13.39 |   21.83 |
 |    AMD | Radeon RX 6700 XT  | Vulkan | win11 |   10.23 |   17.51 |
 |    AMD | Radeon 8060S       | Vulkan | win11 |    8.38 |   19.23 |
