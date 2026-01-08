@@ -207,20 +207,24 @@ Then you can use test.wav to run stt.
 ```
 
 For benchmarking speech-to-speech (sts), you can use the `--bench` option, this will disable sdl audio input/output to run the model as fast as possible for only 125 frames, which can take between 10 to 40 seconds. For the fastest speed with sts it is recommended to use the `-g -q q4_k` options which will take an addition 4gb of disk space and take several minutes the first run, but after the first run it will loads in seconds, and consumes less than 8gb of vram.
+```
+./moshi-sts --bench -g -q q4_k
+```
+
 These commands output frames per second. Although tts also outputs tokens per second, that is for reference since token pronouncation can take variable frames to compute.
 
 Moshi operates at 12.5 frames per second, so anything below that would not work for real time applications.
 
 CUDA benchmarks:
-| make   | name               | driver | os    | tts fps | stt fps |
-|--------|--------------------|--------|-------|---------|---------|
-| NVIDIA | RTX 4090           | CUDA   | linux |   40.07 |  101.99 |
-| NVIDIA | RTX 4070 Ti        | CUDA   | win11 |   16.09 |   34.25 |
-| NVIDIA | GTX 2070           | CUDA   | linux |   15.49 |   60.84 |
-| NVIDIA | RTX 4070 Ti (USB4) | CUDA   | win11 |   11.94 |   25.88 |
-| NVIDIA | GTX 1070           | CUDA   | win11 |    7.04 |   23.40 |
 | make   | name               | driver | os    | tts fps | stt fps | sts q4_k |
 |--------|--------------------|--------|-------|---------|---------|----------|
+| NVIDIA | RTX 4090           | CUDA   | linux |   40.07 |  101.99 |    38.97 |
+| NVIDIA | RTX 4070 Ti        | CUDA   | linux |   29.75 |   83.00 |    29.18 |
+| NVIDIA | RTX 4070 Ti        | CUDA   | win11 |   15.67 |   33.57 |    12.69 |
+| NVIDIA | GTX 2070 Max-Q 8G  | CUDA   | linux |   15.64 |   64.65 |    14.30 |
+| NVIDIA | GTX 3060 Laptop 6G | CUDA   | win11 |   10.71 |   30.15 |      N/A |
+| NVIDIA | GTX 2070 Laptop 8G | CUDA   | win10 |   13.37 |   34.86 |     9.85 |
+| NVIDIA | GTX 1070           | CUDA   | win11 |    7.04 |   23.40 |     5.35 |
 
 Vulkan benchmarks:
 | make   | name               | driver | os    | tts fps | stt fps | sts q4_k |
