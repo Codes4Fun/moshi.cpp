@@ -19,15 +19,13 @@ There are multiple tools that demonstrate different components:
 
 There are aria2c download scripts to make it easier to download tested models.
 
-The tools support quantization of the safetensor models and caching of gguf files via commmand line, `-g` to cache a gguf which is several times faster to load than the safetensors but will consume more drive space. Use `-q q8_0` or `q q4_k` to quantize, the q4_k can take a while to convert, several minutes for some models, so it's best to use those with `-g` to save gguf versions, they also perform a bit faster. The largest models, moshika and moshiko, can run on 8gb of vram with q4_k, but they do not perform fast enough on the hardware I've tested with that amount of ram.
+The tools support quantization of the safetensor models and caching of gguf files via commmand line, `-g` to cache a gguf which is several times faster to load than the safetensors but will consume more drive space. Use `-q q8_0` or `q q4_k` to quantize, the q4_k can take a while to convert, several minutes for some models, so it's best to use those with `-g` to save gguf versions, they also perform a bit faster. The largest models, moshika and moshiko, can run on 8gb of vram with q4_k, but they may not perform fast enough, though I was able to have a conversation with an rtx 2070 laptop running linux.
 
 What is left todo is more performance optimizations to support lower end hardware. Python moshi is over 5 times faster than moshi.cpp but uses cuda graphs. Without those cuda graphs moshi.cpp is over twice as fast, so there seems to be a lot of room to improve performance.
 
 ### Performance / Optimizations
 
 There still needs to be lots of optimization and refactoring. Right now, for example, it rebuilds graphs each frame.
-
-I left out a lot of unused code from the original, to save time, but also because there was no easy way for me to test all of it, as I add more demos, I will port more code and features over.
 
 I did create an optimization that does not exist in moshi, and that is, instead of generating an attention bias mask each frame, it generates a reusable pattern once at initialization, and reuses it like you would a lookup table. Not only does this reduce the work to just changing an offset in the pattern tensor, but it makes easier an implementation that originally involved boolean logic operations and dealing with infinities.
 
@@ -144,6 +142,44 @@ In development right now are speech-to-speech models that will be usable with mo
  * kyutai_moshika-pytorch-bf16.txt - 16 GB female model 
  * kyutai_moshiko-pytorch-bf16.txt - 16 GB male model
 
+# Running Demos
+
+After downloading/building moshicpp , you can see a list of device options with the `-l` option, for example `moshi-tts -l` should output a list of devices. If no output shows up, make sure you have the latest msvc redistributables installed:
+* https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170
+
+After downloading the default models (see the Data/Weights section), you should be able start generating speech using the default tts model and voice:
+```
+moshi-tts "She sells sea shells by the sea shore."
+```
+
+If you installed the data to a different directory, you can specify the root location with command line argument `-r` or by setting the environment variable `MODEL_CACHE` to where the models reside, for example if tts model is located at `C:/models/kyutai/tts-1.6b-en_fr` then you could use `-r C:/models` or set `MODEL_CACHE` to `C:\models` and not need the command line option.
+
+If for some reason SDL isn't outputing audio or you want to generate a mp3 file, or other media file format that ffmpeg supports, you can use the output option `-o` like so:
+```
+moshi-tts "She sells sea shells by the sea shore." -o seashells.mp3
+```
+
+To demo the stt, using the microphone:
+```
+moshi-stt
+```
+or an input media file:
+```
+moshi-stt -i seashells.mp3
+```
+
+To talk to moshika (not part of the default download), if you have 20gb vram, you can use:
+```
+moshi-sts
+```
+If you have less than 20gb and more than 8gb of vram, or performance is a bit low, you can quantize the model down and save the results using this command:
+```
+moshi-sts -g -q q4_k
+```
+That will consume about 4gb of additional disk space, and takes several minutes to convert the model, but after the initial creation, starting moshi will take seconds.
+
+If you plan to use these models multiple times, it is recommened to use the `-g` option, it will take up more drive space but will load several times faster. You can experiment with quantization of the other models as well: `-q q8_0` `-q q4_k`.
+
 # Benchmarks
 
 A simple way to do benchmarking is to first generate a wav using moshi-tts and then use that wav with moshi-stt. If you store the models in a separate directory, set the environment variable MODEL_CACHE to the root directory containing kyutai folder to make it easier. You can use this command for benchmarking text-to-speech:
@@ -170,6 +206,7 @@ Then you can use test.wav to run stt.
 ./moshi-stt -i test.wav
 ```
 
+For benchmarking speech-to-speech (sts), you can use the `--bench` option, this will disable sdl audio input/output to run the model as fast as possible for only 125 frames, which can take between 10 to 40 seconds. For the fastest speed with sts it is recommended to use the `-g -q q4_k` options which will take an addition 4gb of disk space and take several minutes the first run, but after the first run it will loads in seconds, and consumes less than 8gb of vram.
 These commands output frames per second. Although tts also outputs tokens per second, that is for reference since token pronouncation can take variable frames to compute.
 
 Moshi operates at 12.5 frames per second, so anything below that would not work for real time applications.
@@ -182,22 +219,23 @@ CUDA benchmarks:
 | NVIDIA | GTX 2070           | CUDA   | linux |   15.49 |   60.84 |
 | NVIDIA | RTX 4070 Ti (USB4) | CUDA   | win11 |   11.94 |   25.88 |
 | NVIDIA | GTX 1070           | CUDA   | win11 |    7.04 |   23.40 |
+| make   | name               | driver | os    | tts fps | stt fps | sts q4_k |
+|--------|--------------------|--------|-------|---------|---------|----------|
 
 Vulkan benchmarks:
-| make   | name               | driver | os    | tts fps | stt fps |
-|--------|--------------------|--------|-------|---------|---------|
-| NVIDIA | RTX 4090           | Vulkan | linux |   23.26 |   43.41 |
-|    AMD | Radeon RX 7900 XT  | Vulkan | win11 |   14.12 |   19.76 |
-| NVIDIA | GTX 2070           | Vulkan | linux |   13.39 |   21.83 |
-|    AMD | Radeon RX 6700 XT  | Vulkan | win11 |   10.23 |   17.51 |
-|    AMD | Radeon 8060S       | Vulkan | win11 |    8.38 |   19.23 |
-| NVIDIA | RTX 4070 Ti        | Vulkan | win11 |    7.53 |    7.16 |
-|    AMD | Radeon 780M        | Vulkan | linux |    5.98 |   18.43 |
-| NVIDIA | RTX 4070 Ti (USB4) | Vulkan | win11 |    4.52 |    3.88 |
-| NVIDIA | GTX 1070           | Vulkan | win11 |    4.12 |   15.59 |
-|    AMD | Radeon 890M        | Vulkan | linux |    4.15 |    9.42 |
-|  Intel | UHD Graphics 630   | Vulkan | linux |    0.90 |    2.67 |
-|  Intel | ARC B850 (USB4)    | Vulkan | win11 |    0.86 |    0.45 |
+| make   | name               | driver | os    | tts fps | stt fps | sts q4_k |
+|--------|--------------------|--------|-------|---------|---------|----------|
+| NVIDIA | RTX 4090           | Vulkan | linux |   23.26 |   43.41 |    16.51 |
+|    AMD | Radeon RX 7900 XT  | Vulkan | win11 |   14.12 |   19.76 |     8.22 |
+| NVIDIA | GTX 2070           | Vulkan | linux |   13.39 |   28.35 |     9.52 |
+|    AMD | Radeon RX 6700 XT  | Vulkan | win11 |   10.23 |   17.51 |          |
+|    AMD | Radeon 8060S       | Vulkan | win11 |    8.38 |   19.23 |          |
+| NVIDIA | RTX 4070 Ti        | Vulkan | win11 |    8.89 |    8.63 |     2.97 |
+|    AMD | Radeon 780M        | Vulkan | linux |    5.98 |   18.43 |     5.23 |
+| NVIDIA | GTX 1070           | Vulkan | win11 |    4.12 |   15.59 |          |
+|    AMD | Radeon 890M        | Vulkan | linux |    4.41 |    9.42 |     3.22 |
+|  Intel | UHD Graphics 630   | Vulkan | linux |    0.90 |    2.67 |          |
+|  Intel | ARC B850 (USB4)    | Vulkan | win11 |    0.86 |    0.45 |          |
 
 CPU benchmarks:
 | make  | name              | driver | tts fps | stt fps | threads |
