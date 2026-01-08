@@ -172,7 +172,7 @@ To talk to moshika (not part of the default download), if you have 20gb vram, yo
 ```
 moshi-sts
 ```
-If you have less than 20gb and more than 8gb of vram, or performance is a bit low, you can quantize the model down and save the results using this command:
+If you have less than 20gb and at least 8gb of vram, or performance is a bit low, you can quantize the model down and cache it using this command:
 ```
 moshi-sts -g -q q4_k
 ```
