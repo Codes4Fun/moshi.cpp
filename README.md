@@ -154,6 +154,8 @@ moshi-tts "She sells sea shells by the sea shore."
 
 If you installed the data to a different directory, you can specify the root location with command line argument `-r` or by setting the environment variable `MODEL_CACHE` to where the models reside, for example if tts model is located at `C:/models/kyutai/tts-1.6b-en_fr` then you could use `-r C:/models` or set `MODEL_CACHE` to `C:\models` and not need the command line option.
 
+If you run into an error about PTX being compiled by an unsupported toolchain, try updating the nvidia drivers.
+
 If for some reason SDL isn't outputing audio or you want to generate a mp3 file, or other media file format that ffmpeg supports, you can use the output option `-o` like so:
 ```
 moshi-tts "She sells sea shells by the sea shore." -o seashells.mp3
@@ -167,6 +169,8 @@ or an input media file:
 ```
 moshi-stt -i seashells.mp3
 ```
+
+If you get an error, make sure the microphone is working, and if in windows make sure desktop apps can access it via the "Microphone privacy settings".
 
 To talk to moshika (not part of the default download), if you have 20gb vram, you can use:
 ```
@@ -218,28 +222,35 @@ Moshi operates at 12.5 frames per second, so anything below that would not work 
 CUDA benchmarks:
 | make   | name               | driver | os    | tts fps | stt fps | sts q4_k |
 |--------|--------------------|--------|-------|---------|---------|----------|
-| NVIDIA | RTX 4090           | CUDA   | linux |   40.07 |  101.99 |    38.97 |
-| NVIDIA | RTX 4070 Ti        | CUDA   | linux |   29.75 |   83.00 |    29.18 |
-| NVIDIA | RTX 4070 Ti        | CUDA   | win11 |   15.67 |   33.57 |    12.69 |
-| NVIDIA | GTX 2070 Max-Q 8G  | CUDA   | linux |   15.64 |   64.65 |    14.30 |
-| NVIDIA | GTX 3060 Laptop 6G | CUDA   | win11 |   10.71 |   30.15 |      N/A |
-| NVIDIA | GTX 2070 Laptop 8G | CUDA   | win10 |   13.37 |   34.86 |     9.85 |
-| NVIDIA | GTX 1070           | CUDA   | win11 |    7.04 |   23.40 |     5.35 |
+| NVIDIA | RTX 4090           | CUDA   | linux |   40.07 |  101.99 | 🟢 38.97 |
+| NVIDIA | RTX 4070 Ti        | CUDA   | linux |   29.75 |   83.00 | 🟢 29.18 |
+| NVIDIA | GTX 2070 Laptop 8G | CUDA   | linux |   17.19 |   72.72 | 🟢 15.86 |
+| NVIDIA | GTX 2070 Max-Q 8G  | CUDA   | linux |   15.64 |   64.65 | 🟢 14.30 |
+| NVIDIA | RTX 4070 Ti        | CUDA   | win11 |   15.67 |   33.57 | 🟢 12.69 |
+| NVIDIA | GTX 2070 Laptop 8G | CUDA   | win10 |   13.37 |   34.86 | 🔴  9.85 |
+| NVIDIA | RTX 4060 Laptop 8G | CUDA   | win11 |   12.36 |   30.00 | 🔴  9.41 |
+| NVIDIA | RTX 3060 Laptop 6G | CUDA   | win11 |   10.71 |   30.15 | 🔴   N/A |
+| NVIDIA | GTX 1070           | CUDA   | win11 |    7.04 |   23.40 | 🔴  5.35 |
 
 Vulkan benchmarks:
 | make   | name               | driver | os    | tts fps | stt fps | sts q4_k |
 |--------|--------------------|--------|-------|---------|---------|----------|
-| NVIDIA | RTX 4090           | Vulkan | linux |   23.26 |   43.41 |    16.51 |
-|    AMD | Radeon RX 7900 XT  | Vulkan | win11 |   14.12 |   19.76 |     8.22 |
-| NVIDIA | GTX 2070           | Vulkan | linux |   13.39 |   28.35 |     9.52 |
-|    AMD | Radeon RX 6700 XT  | Vulkan | win11 |   10.23 |   17.51 |          |
-|    AMD | Radeon 8060S       | Vulkan | win11 |    8.38 |   19.23 |          |
-| NVIDIA | RTX 4070 Ti        | Vulkan | win11 |    8.89 |    8.63 |     2.97 |
-|    AMD | Radeon 780M        | Vulkan | linux |    5.98 |   18.43 |     5.23 |
-| NVIDIA | GTX 1070           | Vulkan | win11 |    4.12 |   15.59 |          |
-|    AMD | Radeon 890M        | Vulkan | linux |    4.41 |    9.42 |     3.22 |
-|  Intel | UHD Graphics 630   | Vulkan | linux |    0.90 |    2.67 |          |
-|  Intel | ARC B850 (USB4)    | Vulkan | win11 |    0.86 |    0.45 |          |
+|    AMD | Radeon RX 7900 XT  | Vulkan | linux |   25.08 |   80.40 | 🟢 26.12 |
+|    AMD | Radeon RX 6700 XT  | Vulkan | linux |   17.10 |   53.98 | 🟢 16.97 |
+| NVIDIA | RTX 4090           | Vulkan | linux |   23.26 |   43.41 | 🟢 16.51 |
+|  Intel | ARC B850           | Vulkan | linux |   15.13 |   43.12 | 🟢 13.91 |
+|    AMD | Radeon 8060S       | Vulkan | linux |   11.30 |   34.39 | 🟢 12.71 |
+| NVIDIA | GTX 2070           | Vulkan | linux |   13.39 |   28.35 | 🔴  9.52 |
+|    AMD | Radeon 8060S       | Vulkan | win11 |    8.48 |   21.81 | 🔴  8.37 |
+|    AMD | Radeon RX 7900 XT  | Vulkan | win11 |   14.12 |   19.76 | 🔴  8.22 |
+|  Intel | ARC B850           | Vulkan | win11 |   15.35 |   22.49 | 🔴  8.15 |
+|    AMD | Radeon RX 6700 XT  | Vulkan | win11 |   10.93 |   19.49 | 🔴  6.76 |
+|    AMD | Radeon 890M  HX370 | Vulkan | linux |    6.81 |   20.96 | 🔴  5.70 |
+| NVIDIA | GTX 1070           | Vulkan | win10 |    7.59 |   25.35 | 🔴  5.35 |
+|    AMD | Radeon 780M        | Vulkan | linux |    5.98 |   18.43 | 🔴  5.23 |
+| NVIDIA | RTX 4060 Laptop 8G | Vulkan | win11 |    8.01 |   10.44 | 🔴  3.77 |
+|    AMD | Radeon 890M  8840U | Vulkan | linux |    4.41 |    9.42 | 🔴  3.22 |
+| NVIDIA | RTX 4070 Ti        | Vulkan | win11 |    8.89 |    8.63 | 🔴  2.97 |
 
 CPU benchmarks:
 | make  | name              | driver | tts fps | stt fps | threads |
