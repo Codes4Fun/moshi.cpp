@@ -272,7 +272,7 @@ int get_prefix(
     state_ctx.new_tensor( GGML_NE(samples.size()), GGML_TYPE_F32, &x );
     state_ctx.alloc();
     state_ctx.init();
-    init( states );
+    init( tts->scratch, states, tts->mimi );
     assert( x );
     ggml_backend_tensor_set( x, samples.data(), 0, ggml_nbytes( x ) );
     
@@ -356,9 +356,11 @@ void moshi_ttsmodel_generate_wav(
         tts->lm,
         true, 0.6f, 0.6f, 250, 25,
         machine, machine_state,
-        tts->voice.sum, tts->voice.cross,
+        tts->voice.sum,
         &tts->voice.text_prefixes, &tts->voice.audio_prefixes
     };
+
+    ScratchContext ctx( 256, backend );
 
     StateContext state_ctx( backend );
     auto lm_states = moshi_lmmodel_states( &state_ctx, tts->lm, tts->voice.cross );
@@ -369,10 +371,9 @@ void moshi_ttsmodel_generate_wav(
 
     state_ctx.alloc();
     state_ctx.init();
-    init( lm_states );
-    init( mimi_states );
+    init( &ctx, lm_states, tts->lm, tts->voice.cross );
+    init( &ctx, mimi_states, tts->mimi );
 
-    ScratchContext ctx( 256, backend );
     std::vector<std::vector<float>> pcms2;
     int int_text_token;
     std::vector<int> int_audio_tokens( tts->lm->num_audio_codebooks );

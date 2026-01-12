@@ -8,7 +8,12 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
     
     assert( config->positional_embedding == "rope" );
     auto lm_transformer = new moshi_streaming_transformer_t;
+    lm_transformer->context = (int)config->context;
+    lm_transformer->weights_per_step = 0;
+    lm_transformer->capacity = lm_transformer->context;
     lm_transformer->layers.resize( config->num_layers );
+    lm_transformer->rope_max_period = (int)config->max_period;
+    lm_transformer->dim_per_head = (int)config->dim / (int)config->num_heads;
     for ( int64_t i = 0; i < config->num_layers; i++ ) {
         moshi_smha_t * cross_attention = NULL;
         torch_nn_layer_norm_t * norm_cross = NULL;
@@ -77,7 +82,12 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
 
     moshi_streaming_transformer_t * lm_depformer = NULL;
     if ( config->dep_q > 0 ) {
+        int context = (int)config->depformer_context;
+        int weights_per_step = (int)config->depformer_weights_per_step_schedule.size();
         lm_depformer = new moshi_streaming_transformer_t;
+        lm_depformer->context = context;
+        lm_depformer->weights_per_step = weights_per_step;
+        lm_depformer->capacity = context? context : weights_per_step;
         lm_depformer->layers.resize( config->depformer_num_layers );
         int rope_max_period = 0;
         if ( config->depformer_pos_emb == "rope" ) {
@@ -85,6 +95,8 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
         } else {
             assert( config->depformer_pos_emb == "none" );
         }
+        lm_depformer->rope_max_period = rope_max_period;
+        lm_depformer->dim_per_head = (int)config->depformer_dim / config->depformer_num_heads;
         for ( int64_t i = 0; i < config->depformer_num_layers; i++ ) {
             auto layer = new moshi_streaming_transformer_layer_t{
                 /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
@@ -96,8 +108,8 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
                     /*.cache_cross_attention=*/ true,
                     /*.causal=*/ config->causal,
                     /*.rope_max_period=*/ rope_max_period,
-                    /*.context=*/ (int)config->depformer_context,
-                    /*.weights_per_step=*/ (int)config->depformer_weights_per_step_schedule.size(),
+                    /*.context=*/ context,
+                    /*.weights_per_step=*/ weights_per_step,
                     /*.weights_per_step_schedule=*/ {},
                     /*.in_projs=*/ {},
                     /*.out_projs=*/ {}
@@ -114,9 +126,9 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
                 /*.layer_scale_2=*/ NULL
             };
 
-            layer->self_attn->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
-            layer->weights_per_step_schedule.resize( config->depformer_weights_per_step_schedule.size() );
-            for ( size_t j =0; j < config->depformer_weights_per_step_schedule.size(); j++ ) {
+            layer->self_attn->weights_per_step_schedule.resize( weights_per_step );
+            layer->weights_per_step_schedule.resize( weights_per_step );
+            for ( size_t j =0; j < weights_per_step; j++ ) {
                 layer->self_attn->weights_per_step_schedule[j] = (int) config->depformer_weights_per_step_schedule[j];
                 layer->weights_per_step_schedule[j] = (int) config->depformer_weights_per_step_schedule[j];
             }
@@ -272,9 +284,15 @@ moshi_mimi_t * moshi_mimi_alloc_default( int n_q, bool encoder = true ) {
     };
 
     // "mimi.decoder_.transformer."
-    auto mimi_decoder__transformer =
-    new moshi_streaming_transformer_t{ /*.layers=*/ {
-        new moshi_streaming_transformer_layer_t{
+    auto mimi_decoder__transformer = new moshi_streaming_transformer_t;
+    mimi_decoder__transformer->context = 250;
+    mimi_decoder__transformer->weights_per_step = 0;
+    mimi_decoder__transformer->capacity = 250;
+    mimi_decoder__transformer->layers.resize( 8 );
+    mimi_decoder__transformer->rope_max_period = 10000;
+    mimi_decoder__transformer->dim_per_head = 512 / 8;
+    for ( int64_t i = 0; i < 8; i++ ) {
+        auto layer = new moshi_streaming_transformer_layer_t{
             /*.norm1_rms=*/ NULL,
             /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
             /*self_attn=*/ new moshi_smha_t{
@@ -289,7 +307,8 @@ moshi_mimi_t * moshi_mimi_alloc_default( int n_q, bool encoder = true ) {
                 /*.weights_per_step_schedule=*/ {},
                 /*.in_projs=*/ { new torch_nn_linear_t },
                 /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ new moshi_layer_scale_t,
+            },
+            /*.layer_scale_1=*/ new moshi_layer_scale_t,
             /*.norm_cross=*/ NULL,
             /*.cross_attention=*/ NULL,
             /*.norm2_rms=*/ NULL,
@@ -299,183 +318,9 @@ moshi_mimi_t * moshi_mimi_alloc_default( int n_q, bool encoder = true ) {
             /*.linear1=*/ new torch_nn_linear_t,
             /*.linear2=*/ new torch_nn_linear_t,
             /*.layer_scale_2=*/ new moshi_layer_scale_t
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ NULL,
-            /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 512,
-                /*.num_heads=*/ 8,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 250,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ new moshi_layer_scale_t,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ NULL,
-            /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {},
-            /*.linear1=*/ new torch_nn_linear_t,
-            /*.linear2=*/ new torch_nn_linear_t,
-            /*.layer_scale_2=*/ new moshi_layer_scale_t
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ NULL,
-            /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 512,
-                /*.num_heads=*/ 8,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 250,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ new moshi_layer_scale_t,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ NULL,
-            /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {},
-            /*.linear1=*/ new torch_nn_linear_t,
-            /*.linear2=*/ new torch_nn_linear_t,
-            /*.layer_scale_2=*/ new moshi_layer_scale_t
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ NULL,
-            /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 512,
-                /*.num_heads=*/ 8,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 250,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ new moshi_layer_scale_t,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ NULL,
-            /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {},
-            /*.linear1=*/ new torch_nn_linear_t,
-            /*.linear2=*/ new torch_nn_linear_t,
-            /*.layer_scale_2=*/ new moshi_layer_scale_t
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ NULL,
-            /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 512,
-                /*.num_heads=*/ 8,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 250,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ new moshi_layer_scale_t,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ NULL,
-            /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {},
-            /*.linear1=*/ new torch_nn_linear_t,
-            /*.linear2=*/ new torch_nn_linear_t,
-            /*.layer_scale_2=*/ new moshi_layer_scale_t
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ NULL,
-            /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 512,
-                /*.num_heads=*/ 8,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 250,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ new moshi_layer_scale_t,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ NULL,
-            /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {},
-            /*.linear1=*/ new torch_nn_linear_t,
-            /*.linear2=*/ new torch_nn_linear_t,
-            /*.layer_scale_2=*/ new moshi_layer_scale_t
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ NULL,
-            /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 512,
-                /*.num_heads=*/ 8,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 250,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ new moshi_layer_scale_t,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ NULL,
-            /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {},
-            /*.linear1=*/ new torch_nn_linear_t,
-            /*.linear2=*/ new torch_nn_linear_t,
-            /*.layer_scale_2=*/ new moshi_layer_scale_t
-        }, new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ NULL,
-            /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*self_attn=*/ new moshi_smha_t{
-                /*.embed_dim=*/ 512,
-                /*.num_heads=*/ 8,
-                /*.cross_attention=*/ false,
-                /*.cache_cross_attention=*/ true,
-                /*.causal=*/ true,
-                /*.rope_max_period=*/ 10000,
-                /*.context=*/ 250,
-                /*.weights_per_step=*/ 0,
-                /*.weights_per_step_schedule=*/ {},
-                /*.in_projs=*/ { new torch_nn_linear_t },
-                /*.out_projs=*/ { new torch_nn_linear_t }
-            }, /*.layer_scale_1=*/ new moshi_layer_scale_t,
-            /*.norm_cross=*/ NULL,
-            /*.cross_attention=*/ NULL,
-            /*.norm2_rms=*/ NULL,
-            /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
-            /*.weights_per_step_schedule=*/ {},
-            /*.gating=*/ {},
-            /*.linear1=*/ new torch_nn_linear_t,
-            /*.linear2=*/ new torch_nn_linear_t,
-            /*.layer_scale_2=*/ new moshi_layer_scale_t
-        },
-    }};
+        };
+        mimi_decoder__transformer->layers[i] = layer;
+    }
 
     auto mimi_decoder = new moshi_seanet_decoder_t{
         /*.model_0=*/ new moshi_streaming_conv_1d_t{
@@ -671,7 +516,12 @@ moshi_mimi_t * moshi_mimi_alloc_default( int n_q, bool encoder = true ) {
         };
         
         mimi_encoder__transformer = new moshi_streaming_transformer_t;
+        mimi_encoder__transformer->context = 250;
+        mimi_encoder__transformer->weights_per_step = 0;
+        mimi_encoder__transformer->capacity = 250;
         mimi_encoder__transformer->layers.resize( 8 );
+        mimi_encoder__transformer->rope_max_period = 10000;
+        mimi_encoder__transformer->dim_per_head = 512 / 8;
         for ( int64_t i = 0; i < 8; i++ ) {
             auto layer = new moshi_streaming_transformer_layer_t{
                 /*.norm1_rms=*/ NULL,

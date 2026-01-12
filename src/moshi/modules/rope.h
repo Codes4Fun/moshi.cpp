@@ -6,7 +6,7 @@ struct timestep_embedding_t {
 
 // this seems cacheable, repeats for many layers
 void moshi_get_timestep_embedding(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         int T, int D,
         ggml_tensor * offset,
         int max_period,
@@ -21,7 +21,7 @@ void moshi_get_timestep_embedding(
 
 // this seems cacheable, repeats for many layers
 std::tuple<ggml_tensor*,ggml_tensor*> moshi_get_timestep_embedding(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         int T, int D,
         ggml_tensor * offset,
         int max_period ) {
@@ -31,7 +31,7 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_get_timestep_embedding(
 }
 
 std::tuple<ggml_tensor*,ggml_tensor*> moshi_apply_rope(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         ggml_tensor * q,
         ggml_tensor * k,
         timestep_embedding_t * tsemb,

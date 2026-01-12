@@ -126,7 +126,7 @@ ggml_tensor * torch_nn_linear_view(
 // mathematical way to generate the bias from a mask, as opposed to a boolean
 // operations as it was before, since ggml does not currently support them
 ggml_tensor * torch_nn_functional_scaled_dot_product_attention(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         ggml_tensor * query,
         ggml_tensor * key,
         ggml_tensor * value,
@@ -223,7 +223,7 @@ ggml_tensor * bias_pattern_index(
 }
 
 ggml_tensor * torch_nn_functional_scaled_dot_product_attention_custom(
-        ScratchContext & ctx,
+        ggml_context * ctx,
         ggml_tensor * query,
         ggml_tensor * key,
         ggml_tensor * value,

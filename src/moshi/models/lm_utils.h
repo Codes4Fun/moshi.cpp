@@ -113,5 +113,16 @@ ggml_tensor * moshi_scaled_embedding(
     return y;
 }
 
+// this should only be used after the first moshi_scaled_embedding
+// where the input value is guaranteed to not be negative
+ggml_tensor * moshi_scaled_embedding_chained(
+        ScratchContext & ctx,
+        moshi_scaled_embedding_t * m,
+        ggml_tensor * input ) {
+    auto y = ggml_get_rows( ctx, m->weight, input );
+    if ( m->low_rank )
+        y = torch_nn_linear( ctx, m->low_rank, y );
+    return y;
+}
 
 

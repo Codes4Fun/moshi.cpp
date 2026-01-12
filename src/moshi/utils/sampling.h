@@ -22,7 +22,7 @@ ggml_tensor * moshi_multinomial(
     return output;
 }
 
-int moshi_sample_top_k_int( ScratchContext &ctx, ggml_tensor * probs, int k) {
+ggml_tensor * moshi_sample_top_k( ScratchContext &ctx, ggml_tensor * probs, int k) {
     /* Sample next token from top K values along the last dimension of the input probs tensor.
 
     Args:
@@ -40,14 +40,10 @@ int moshi_sample_top_k_int( ScratchContext &ctx, ggml_tensor * probs, int k) {
     auto next_token = moshi_multinomial( ctx, probs, 1 );
 
     auto indices_rows = ggml_permute( ctx, indices, 1, 0, 2, 3 );
-    next_token = ggml_get_rows( ctx, ggml_cont( ctx, indices_rows ), next_token );
-    int next_token_int;
-    ctx.build_forward_expand( next_token, &next_token_int );
-    ctx.compute();
-    return next_token_int;
+    return ggml_get_rows( ctx, ggml_cont( ctx, indices_rows ), next_token );
 }
 
-int moshi_sample_token_int(
+ggml_tensor * moshi_sample_token(
         ScratchContext & ctx,
         ggml_tensor * logits,
         bool use_sampling = false,
@@ -62,11 +58,23 @@ int moshi_sample_token_int(
         auto logits_temp = ggml_scale( ctx, logits, 1.f / temp);
         auto probs = ggml_soft_max( ctx, logits_temp );
 
-        return moshi_sample_top_k_int( ctx, probs, top_k );
+        return moshi_sample_top_k( ctx, probs, top_k );
     }
-    auto next_token = ggml_argmax( ctx, logits );
+    return ggml_argmax( ctx, logits );
+}
+
+int moshi_sample_token_int(
+        ScratchContext & ctx,
+        ggml_tensor * logits,
+        bool use_sampling = false,
+        float temp = 1.0,
+        int top_k = 0,
+        float top_p = 0.0
+    ) {
+    auto next_token = moshi_sample_token( ctx, logits, use_sampling, temp, top_k, top_p );
     int next_token_int;
     ctx.build_forward_expand( next_token, &next_token_int );
     ctx.compute();
     return next_token_int;
 }
+

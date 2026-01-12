@@ -208,11 +208,12 @@ public:
     own_ctx_tensor & operator=( own_ctx_tensor& ) = delete;
 };
 
-class ScratchContext {
+class GraphContext {
     public:
     ggml_backend * backend;
     ggml_context * ctx;
     ggml_cgraph * gf;
+    ggml_backend_buffer * buffer;
 
     // to load tensors
     struct load_t {
@@ -239,13 +240,6 @@ class ScratchContext {
         ggml_tensor * src;
     };
     std::vector<input_convert_t> input_converts;
-    // to manually copy tensors, from backend to local context
-    struct copy_tensor_t {
-        ggml_tensor * src;
-        ggml_context * ctx;
-        ggml_tensor ** dst;
-    };
-    std::vector<copy_tensor_t> tensor_copies;
     //
     struct backend_tensor_t {
         ggml_tensor * src;
@@ -259,33 +253,25 @@ class ScratchContext {
     };
     std::vector<copy_t> copies;
 
-    ScratchContext( size_t mb, ggml_backend * backend = NULL ) {
+    GraphContext( size_t mb, ggml_backend * backend = NULL ) {
+        this->backend = backend;
         ctx = ggml_init({
             /*.mem_size   =*/ mb * 1024 * 1024,
             /*.mem_buffer =*/ NULL,
             /*.no_alloc   =*/ backend? true : false, // NOTE: this should be false when using the legacy API
         });
         gf = NULL;
-        this->backend = backend;
+        buffer = NULL;
     }
-    ~ScratchContext() { ggml_free(ctx); }
 
-    bool can_cast() {
-        return true;
+    ~GraphContext() {
+        if ( buffer )
+            ggml_backend_buffer_free( buffer );
+        ggml_free(ctx);
     }
 
     operator ggml_context * () {
         return ctx;
-    }
-
-    ggml_tensor * load( SafeTensorFile * src, safetensor_t * safetensor ) {
-        auto tensor = safetensor_alloc( ctx, safetensor );
-        if (backend) {
-            loaders.push_back({ src, safetensor, tensor });
-            return tensor;
-        }
-        src->init(safetensor, tensor);
-        return tensor;
     }
 
     ggml_tensor * constant( int32_t i32 ) {
@@ -322,7 +308,7 @@ class ScratchContext {
             }
             return tensor;
         }
-        assert(false); // TODO
+        assert(false);
     }
 
     ggml_tensor * fill( NE ne, float value ) {
@@ -363,18 +349,7 @@ class ScratchContext {
         return tensor;
     }
 
-    // allow another to write to the backend of ours
-    // primarily for copying from scratch cpu to scratch gpu
-    ggml_tensor * dup_constant( ggml_tensor * src_tensor, void * &data ) {
-        assert( backend ); // TODO maybe support non-backend
-        auto tensor = ggml_dup_tensor( ctx, src_tensor );
-        constants.push_back({tensor});
-        auto & constant = constants.back();
-        constant.data.resize( ggml_nbytes( tensor ) );
-        data = constant.data.data();
-        return tensor;
-    }
-
+    // arange was not supported by all backends
     ggml_tensor * arange( float start, float stop, float step ) {
         if (backend) {
             const int64_t steps = (int64_t) ceilf((stop - start) / step);
@@ -391,6 +366,7 @@ class ScratchContext {
         return ggml_arange( ctx, start, stop, step );
     }
 
+    // probability density function
     ggml_tensor * exponential( NE ne, float lambd = 1.f ) {
         auto tensor = ggml_new_tensor( ctx, GGML_TYPE_F32, 4, ne );
         int64_t n = ggml_nelements( tensor );
@@ -412,6 +388,62 @@ class ScratchContext {
 #endif
         return tensor;
     }
+
+    std::string name;
+    void set_name(std::string name) {
+        this->name = name;
+    }
+
+    ggml_cgraph * get_graph() {
+        if (!gf)
+            gf = ggml_new_graph_custom( ctx, GGML_DEFAULT_GRAPH_SIZE * 4, false );
+        return gf;
+    }
+
+    void build_forward_expand( ggml_tensor * tensor ) {
+        ggml_build_forward_expand( get_graph(), tensor );
+    }
+
+    void alloc() {
+        assert( ! buffer );
+        buffer = ggml_backend_alloc_ctx_tensors( ctx, backend );
+        assert( buffer );
+        for (auto load : loaders) {
+            load.src->init( load.safetensor, load.tensor, backend );
+        }
+        for (auto i32 : constants32) {
+            ggml_backend_tensor_set(i32.tensor, &i32.value, 0, ggml_nbytes(i32.tensor));
+        }
+        for (auto constant : constants) {
+            ggml_backend_tensor_set(constant.tensor, constant.data.data(), 0, ggml_nbytes(constant.tensor));
+        }
+        for (auto convert : input_converts) {
+            ggml_backend_tensor_set(convert.dst, convert.src->data, 0, ggml_nbytes(convert.dst));
+        }
+    }
+
+    void compute() {
+        assert( backend );
+        if (name.size()) {CAPTURE(name, gf);}
+        ggml_backend_graph_compute( backend, gf );
+    }
+};
+
+class ScratchContext : public GraphContext {
+    public:
+    ScratchContext( size_t mb, ggml_backend * backend = NULL )
+        : GraphContext( mb, backend ) {}
+
+    ggml_tensor * load( SafeTensorFile * src, safetensor_t * safetensor ) {
+        auto tensor = safetensor_alloc( ctx, safetensor );
+        if (backend) {
+            loaders.push_back({ src, safetensor, tensor });
+            return tensor;
+        }
+        src->init(safetensor, tensor);
+        return tensor;
+    }
+
 
     ggml_tensor * input( NE ne, std::vector<int> & i32 ) {
         auto tensor = ggml_new_tensor( ctx, GGML_TYPE_I32, 4, ne );
@@ -447,68 +479,26 @@ class ScratchContext {
         return tensor;
     }
 
-    ggml_tensor * input( ggml_tensor * tensor ) {
-        if (tensor == NULL)
-            return NULL;
-        if (backend) {
-            if (!tensor->buffer) {
-                assert( tensor->data );
-                assert( ggml_is_contiguous( tensor ) );
-                input_convert_t convert;
-                convert.src = tensor;
-                convert.dst = ggml_dup_tensor( ctx, tensor );
-                input_converts.push_back( convert );
-                tensor = convert.dst;
-            }
-            return tensor;
-        }
-        assert( tensor->data );
-        return tensor;
-    }
-
-    std::string name;
-    void set_name(std::string name) {
-        this->name = name;
-    }
-
     void build_forward_expand( ggml_tensor * tensor ) {
         assert( tensor->op == GGML_OP_CPY ); // scratch context will not store data
-        if (!gf)
-            gf = ggml_new_graph_custom( ctx, GGML_DEFAULT_GRAPH_SIZE * 2, false );
-        ggml_build_forward_expand( gf, tensor );
+        ggml_build_forward_expand( get_graph(), tensor );
     }
 
-    void build_forward_expand( ggml_tensor * tensor,
-            ggml_context * copy_ctx, ggml_tensor ** copy_tensor ) {
-        assert( !ggml_get_no_alloc( copy_ctx ) );
-        if (backend) {
-            if (!gf)
-                gf = ggml_new_graph_custom( ctx, GGML_DEFAULT_GRAPH_SIZE * 2, false );
-            ggml_build_forward_expand( gf, tensor );
-            tensor_copies.push_back({ tensor, copy_ctx, copy_tensor });
-            return;
-        }
-        // wrap in a copy op
-        *copy_tensor = ggml_dup_tensor( copy_ctx, tensor );
-        tensor = ggml_cpy( ctx, tensor, *copy_tensor );
-        if (!gf)
-            gf = ggml_new_graph_custom( ctx, GGML_DEFAULT_GRAPH_SIZE * 2, false );
-        ggml_build_forward_expand( gf, tensor );
-    }
-
+    // this should only be used for cpu to gpu copies, otherwise use ggml_cpy
     void build_forward_expand( ggml_tensor * tensor, ggml_tensor * copy_tensor ) {
         assert( copy_tensor->buffer ); // copy to a backend
         assert( ggml_nbytes(tensor) == ggml_nbytes(copy_tensor) );
-        if (!gf)
-            gf = ggml_new_graph_custom( ctx, GGML_DEFAULT_GRAPH_SIZE * 2, false );
-        ggml_build_forward_expand( gf, tensor );
+        ggml_build_forward_expand( get_graph(), tensor );
         backend_copies.push_back({ tensor, copy_tensor });
     }
 
-    void build_forward_expand( ggml_tensor * tensor, void * dst ) {
-        if (!gf)
-            gf = ggml_new_graph_custom( ctx, GGML_DEFAULT_GRAPH_SIZE * 2, false );
-        ggml_build_forward_expand( gf, tensor );
+    void build_forward_expand( ggml_tensor * tensor, int32_t * dst ) {
+        ggml_build_forward_expand( get_graph(), tensor );
+        copies.push_back({ tensor, dst });
+    }
+
+    void build_forward_expand( ggml_tensor * tensor, float * dst ) {
+        ggml_build_forward_expand( get_graph(), tensor );
         copies.push_back({ tensor, dst });
     }
 
@@ -521,96 +511,51 @@ class ScratchContext {
         if (src->type != GGML_TYPE_F32)
             src = ggml_cast( ctx, src, GGML_TYPE_F32 );
         auto sum = ggml_sum( ctx, src );
-        if (!gf)
-            gf = ggml_new_graph_custom( ctx, GGML_DEFAULT_GRAPH_SIZE * 2, false );
-        ggml_build_forward_expand( gf, sum );
+        ggml_build_forward_expand( get_graph(), sum );
         debug_sums.push_back({label, sum});
     }
 
-    void reset() {
+    void clear() {
+        debug_sums.clear();
         backend_copies.clear();
         copies.clear();
-        tensor_copies.clear();
+        //tensor_copies.clear();
         input_converts.clear();
         constants.clear();
         constants32.clear();
         loaders.clear();
+        ggml_backend_buffer_free( buffer );
+        buffer = NULL;
         ggml_reset(ctx);
         gf = NULL;
         name = "";
     }
 
     void compute() {
-        if (backend) {
-            // initialize tensors
-            auto buffer = ggml_backend_alloc_ctx_tensors( ctx, backend );
-            assert( buffer );
-            for (auto load : loaders) {
-                load.src->init( load.safetensor, load.tensor, backend );
-            }
-            for (auto i32 : constants32) {
-                ggml_backend_tensor_set(i32.tensor, &i32.value, 0, ggml_nbytes(i32.tensor));
-            }
-            for (auto constant : constants) {
-                ggml_backend_tensor_set(constant.tensor, constant.data.data(), 0, ggml_nbytes(constant.tensor));
-            }
-            for (auto convert : input_converts) {
-                ggml_backend_tensor_set(convert.dst, convert.src->data, 0, ggml_nbytes(convert.dst));
-            }
-            // compute
-            if (name.size()) {CAPTURE(name, gf);}
-            ggml_backend_graph_compute( backend, gf );
-            // debug
-            for (auto sum : debug_sums) {
-                float fsum;
-                ggml_backend_tensor_get( sum.src, &fsum, 0, 4 );
-                printf( "%s %f\n", sum.label, fsum );
-            }
-            // copy results
-            for (auto copy : tensor_copies) {
-                auto tensor = ggml_dup_tensor( copy.ctx, copy.src );
-                ggml_backend_tensor_get(copy.src, tensor->data, 0, ggml_nbytes(tensor));
-                *copy.dst = tensor;
-            }
-            for (auto copy : copies) {
-                size_t nbytes = ggml_nbytes(copy.src);
-                ggml_backend_tensor_get(copy.src, copy.dst, 0, nbytes);
-            }
-            for (auto copy : backend_copies) {
-                int64_t nbytes = ggml_nbytes( copy.dst );
-                std::vector<uint8_t> buf( nbytes );
-                ggml_backend_tensor_get( copy.src, buf.data(), 0, nbytes );
-                ggml_backend_tensor_set( copy.dst, buf.data(), 0, nbytes );
-            }
-            // cleanup
-            debug_sums.clear();
-            ggml_backend_buffer_free( buffer );
-            backend_copies.clear();
-            copies.clear();
-            tensor_copies.clear();
-            input_converts.clear();
-            constants.clear();
-            constants32.clear();
-            loaders.clear();
-        } else {
-            assert(false);
-            /*if (name.size()) {CAPTURE(name, gf);}
-            ggml_graph_compute_with_ctx(ctx, gf, 1);
-            for (auto copy : copies) {
-                size_t nbytes = ggml_nbytes(copy.src);
-                memcpy(copy.dst, copy.src->data, nbytes);
-            }
-            for (auto copy : backend_copies) {
-                int nbytes = ggml_nbytes( copy.dst );
-                std::vector<uint8_t> buf( nbytes );
-                ggml_backend_tensor_set( copy.dst, copy.src->data, 0, nbytes );
-            }
-            backend_copies.clear();
-            copies.clear();*/
+        assert( backend );
+        alloc();
+        // compute
+        if (name.size()) {CAPTURE(name, gf);}
+        ggml_backend_graph_compute( backend, gf );
+        // debug
+        for (auto sum : debug_sums) {
+            float fsum;
+            ggml_backend_tensor_get( sum.src, &fsum, 0, 4 );
+            printf( "%s %f\n", sum.label, fsum );
         }
-        ggml_reset(ctx);
-        gf = NULL;
-        name = "";
+        // copy results
+        for (auto copy : copies) {
+            size_t nbytes = ggml_nbytes(copy.src);
+            ggml_backend_tensor_get(copy.src, copy.dst, 0, nbytes);
+        }
+        for (auto copy : backend_copies) {
+            int64_t nbytes = ggml_nbytes( copy.dst );
+            std::vector<uint8_t> buf( nbytes );
+            ggml_backend_tensor_get( copy.src, buf.data(), 0, nbytes );
+            ggml_backend_tensor_set( copy.dst, buf.data(), 0, nbytes );
+        }
+        // cleanup
+        clear();
     }
 };
 

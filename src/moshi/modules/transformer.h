@@ -181,6 +181,7 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
     int T = (int) k->ne[1];
     int capacity = (int) keys->ne[1];
     index = index % capacity;
+    assert( (index % T) == 0 );
     // keys update cache
     auto cache_0_0 = ggml_view_4d( ctx, keys,
         keys->ne[0], // D
@@ -231,6 +232,19 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
         values->nb[3],
         values->nb[1] * -index
     );
+    return std::make_tuple( keys, values );
+}
+
+std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
+        ggml_context * ctx,
+        ggml_tensor * keys,
+        ggml_tensor * values,
+        ggml_tensor * indices,
+        ggml_tensor * k,
+        ggml_tensor * v ) {
+    assert( indices->ne[0] == k->ne[1] ); // one index per T
+    keys = ggml_set_rows( ctx, keys, k, indices );
+    values = ggml_set_rows( ctx, values, v, indices );
     return std::make_tuple( keys, values );
 }
 
@@ -297,8 +311,6 @@ struct moshi_smha_t {
 };
 
 struct moshi_smha_state_t {
-    int offset;
-    bool cache_ready = false;
     ggml_tensor * k_cross;
     ggml_tensor * v_cross;
     own_ptr<moshi_kv_cache_state_t> kv_cache;
@@ -328,17 +340,67 @@ moshi_smha_state_t * moshi_smha_state( StateContext * state_ctx,
     return state;
 }
 
-void init( moshi_smha_state_t * state ) {
-    state->offset = 0;
-    state->cache_ready = false;
+void init( ScratchContext * scratch_ctx, moshi_smha_state_t * state,
+        moshi_smha_t * attn, ggml_tensor * condition_cross ) {
+    if ( condition_cross && attn->cache_cross_attention ) {
+        ScratchContext &ctx = *scratch_ctx;
+
+        int H = attn->num_heads;
+        auto in_proj = attn->in_projs[0];
+        int dim = (int) in_proj->weight->ne[1] / 3;
+        int dim2 = dim * 2;
+
+        auto kv = torch_nn_linear_view( ctx, in_proj, dim, dim2, condition_cross );
+
+        //k, v = rearrange(kv, "b t (p h d) -> p b h t d", p=2, h=attn->num_heads)
+        auto k = ggml_view_3d( ctx, kv,
+            kv->ne[0] / 2,
+            kv->ne[1],
+            kv->ne[2],
+            kv->nb[1],
+            kv->nb[2],
+            0 );
+        // b t (h d) -> b t h d
+        k = ggml_cont( ctx, k );
+        k = ggml_reshape_4d( ctx, k,
+            k->ne[0] / H,
+            H,
+            k->ne[1],
+            k->ne[2] );
+        // b t h d -> b h t d
+        k = ggml_permute( ctx, k, 0, 2, 1, 3 );
+
+        auto v = ggml_view_3d( ctx, kv,
+            kv->ne[0] / 2,
+            kv->ne[1],
+            kv->ne[2],
+            kv->nb[1],
+            kv->nb[2],
+            kv->nb[1] / 2 );
+        // b t (h d) -> b t h d
+        v = ggml_cont( ctx, v );
+        v = ggml_reshape_4d( ctx, v,
+            v->ne[0] / H,
+            H,
+            v->ne[1],
+            v->ne[2] );
+        // b t h d -> b h t d
+        v = ggml_permute( ctx, v, 0, 2, 1, 3 );
+
+        k = ggml_cpy( ctx, k, state->k_cross );
+        v = ggml_cpy( ctx, v, state->v_cross );
+        ctx.build_forward_expand( k );
+        ctx.build_forward_expand( v );
+        ctx.compute();
+    }
 }
 
-void cache_kv( ggml_context * ctx, moshi_smha_state_t * state,
-        ggml_tensor * &k_cross, ggml_tensor * &v_cross ) {
-    assert( state->k_cross );
-    k_cross = ggml_cpy( ctx, k_cross, state->k_cross );
-    v_cross = ggml_cpy( ctx, v_cross, state->v_cross );
-    state->cache_ready = true;
+ggml_tensor * get_attn_bias( ScratchContext & ctx, bias_pattern_t * pattern,
+        int capacity, int64_t T, int64_t offset ) {
+    if ( ! pattern->tensor ) {
+        create_bias_pattern( ctx.backend, *pattern, capacity, (int) T, 0, -INFINITY );
+    }
+    return bias_pattern_index( ctx, *pattern, (int) offset );
 }
 
 // utility that can be done once and shared across layers
@@ -385,23 +447,27 @@ ggml_tensor * calculate_attn_bias( ScratchContext & ctx, moshi_smha_t * attn,
 }
 
 ggml_tensor * moshi_streaming_multihead_attention(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_smha_t * attn,
         moshi_smha_state_t * state,
+        ggml_tensor * indices,
+        int offset,
         ggml_tensor * query,
         ggml_tensor * key,
-        ggml_tensor * value,
+        /*ggml_tensor * value,*/
         ggml_tensor * attn_bias = NULL,
         timestep_embedding_t * tsemb = NULL
     ) {
     CAPTURE_GROUP( "multihead_attention" );
 
+    // the offset should only matter to depformers, which can be graphed at
+    // a higher level because it only calls the graph a few times.
+    assert( attn->weights_per_step_schedule.size() == 0 || offset < attn->weights_per_step_schedule.size() );
+    assert( attn->weights_per_step_schedule.size() > 0 || attn->in_projs.size() == 1 || offset < attn->in_projs.size() );
+    assert( attn->weights_per_step_schedule.size() > 0 || attn->out_projs.size() == 1 || offset < attn->out_projs.size() );
+
     int T = (int) query->ne[1];
     int H = attn->num_heads;
-
-    ggml_tensor * offset = NULL;
-    if ( attn->rope_max_period || attn->causal )
-        offset = ctx.constant( (float)state->offset );
 
     ggml_tensor * q;
     ggml_tensor * k;
@@ -413,61 +479,17 @@ ggml_tensor * moshi_streaming_multihead_attention(
         //assert in_proj.bias is None
         //assert isinstance(in_proj, nn.Linear)
         int dim = (int) in_proj->weight->ne[1] / 3;
-        int dim2 = dim * 2;
+        //int dim2 = dim * 2;
         //q = nn.functional.linear(query, in_proj.weight[:dim])
         //q = rearrange(q, "b t (h d) -> b h t d", h=attn->num_heads)
         q = torch_nn_linear_view( ctx, in_proj, 0, dim, query );
 
-        if ( state->cache_ready ) {
-            k = state->k_cross;
-            v = state->v_cross;
-        } else {
-            //kv = nn.functional.linear(key, in_proj.weight[dim:])
-            auto kv = torch_nn_linear_view( ctx, in_proj, dim, dim2, key );
-
-            //k, v = rearrange(kv, "b t (p h d) -> p b h t d", p=2, h=attn->num_heads)
-            k = ggml_view_3d( ctx, kv,
-                kv->ne[0] / 2,
-                kv->ne[1],
-                kv->ne[2],
-                kv->nb[1],
-                kv->nb[2],
-                0 );
-            // b t (h d) -> b t h d
-            k = ggml_cont( ctx, k );
-            k = ggml_reshape_4d( ctx, k,
-                k->ne[0] / H,
-                H,
-                k->ne[1],
-                k->ne[2] );
-            // b t h d -> b h t d
-            k = ggml_permute( ctx, k, 0, 2, 1, 3 );
-
-            v = ggml_view_3d( ctx, kv,
-                kv->ne[0] / 2,
-                kv->ne[1],
-                kv->ne[2],
-                kv->nb[1],
-                kv->nb[2],
-                kv->nb[1] / 2 );
-            // b t (h d) -> b t h d
-            v = ggml_cont( ctx, v );
-            v = ggml_reshape_4d( ctx, v,
-                v->ne[0] / H,
-                H,
-                v->ne[1],
-                v->ne[2] );
-            // b t h d -> b h t d
-            v = ggml_permute( ctx, v, 0, 2, 1, 3 );
-
-            if ( attn->cache_cross_attention ) {
-                cache_kv( ctx, state, k, v );
-            }
-        }
+        k = state->k_cross;
+        v = state->v_cross;
     } else {
         auto projected = moshi_apply_weights_per_step_linear( ctx,
             attn->in_projs, attn->weights_per_step_schedule,
-            query, state->offset );
+            query, offset );
 
         //q, k, v = rearrange(
         //    projected, "b t (p h d) -> p b h t d", p=3, h=attn->num_heads
@@ -535,12 +557,10 @@ ggml_tensor * moshi_streaming_multihead_attention(
 
         std::tie( k, v ) = moshi_kv_cache_insert_kv( ctx,
             state->kv_cache->keys, state->kv_cache->values,
-            state->offset,
-            k, v );
+            indices, k, v );
     }
 
-    if ( ! attn_bias )
-        attn_bias = calculate_attn_bias( ctx, attn, T, state->offset );
+    assert( attn_bias || ! attn->causal );
 
     //x = nn.functional.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
     auto x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
@@ -557,9 +577,187 @@ ggml_tensor * moshi_streaming_multihead_attention(
 
     x = moshi_apply_weights_per_step_linear( ctx,
         attn->out_projs, attn->weights_per_step_schedule,
-        x, state->offset );
+        x, offset );
 
-    state->offset += T;
+    return x;
+}
+
+// doesn't need or use an offset
+ggml_tensor * moshi_streaming_multihead_attention(
+        GraphContext & ctx,
+        moshi_smha_t * attn,
+        moshi_smha_state_t * state,
+        ggml_tensor * indices,
+        ggml_tensor * query,
+        ggml_tensor * key,
+        /*ggml_tensor * value,*/
+        ggml_tensor * attn_bias = NULL,
+        timestep_embedding_t * tsemb = NULL
+    ) {
+    CAPTURE_GROUP( "multihead_attention" );
+
+    assert( attn->weights_per_step_schedule.size() == 0 );
+    assert( attn->in_projs.size() == 1 );
+    assert( attn->out_projs.size() == 1 );
+
+    int T = (int) query->ne[1];
+    int H = attn->num_heads;
+
+    ggml_tensor * q;
+    ggml_tensor * k;
+    ggml_tensor * v;
+
+    if ( attn->cross_attention ) {
+        //assert len(attn->in_projs) == 1
+        auto in_proj = attn->in_projs[0];
+        //assert in_proj.bias is None
+        //assert isinstance(in_proj, nn.Linear)
+        int dim = (int) in_proj->weight->ne[1] / 3;
+        //q = nn.functional.linear(query, in_proj.weight[:dim])
+        //q = rearrange(q, "b t (h d) -> b h t d", h=attn->num_heads)
+        q = torch_nn_linear_view( ctx, in_proj, 0, dim, query );
+
+        k = state->k_cross;
+        v = state->v_cross;
+    } else {
+        auto projected = torch_nn_linear( ctx, attn->in_projs[0], query );
+
+        //q, k, v = rearrange(
+        //    projected, "b t (p h d) -> p b h t d", p=3, h=attn->num_heads
+        //)
+
+        q = ggml_view_3d( ctx, projected,
+            projected->ne[0] / 3,
+            projected->ne[1],
+            projected->ne[2],
+            projected->nb[1],
+            projected->nb[2],
+            0 );
+        q = ggml_cont( ctx, q );
+
+        k = ggml_view_3d( ctx, projected,
+            projected->ne[0] / 3,
+            projected->ne[1],
+            projected->ne[2],
+            projected->nb[1],
+            projected->nb[2],
+            projected->nb[1] / 3 );
+        // b t (h d) -> b t h d
+        k = ggml_cont( ctx, k );
+        k = ggml_reshape_4d( ctx, k,
+            k->ne[0] / H,
+            H,
+            k->ne[1],
+            k->ne[2] );
+        // b t h d -> b h t d
+        k = ggml_permute( ctx, k, 0, 2, 1, 3 );
+
+        v = ggml_view_3d( ctx, projected,
+            projected->ne[0] / 3,
+            projected->ne[1],
+            projected->ne[2],
+            projected->nb[1],
+            projected->nb[2],
+            projected->nb[1] * 2 / 3 );
+        // b t (h d) -> b t h d
+        v = ggml_cont( ctx, v );
+        v = ggml_reshape_4d( ctx, v,
+            v->ne[0] / H,
+            H,
+            v->ne[1],
+            v->ne[2] );
+        // b t h d -> b h t d
+        v = ggml_permute( ctx, v, 0, 2, 1, 3 );
+    }
+
+    // b t (h d) -> b t h d
+    q = ggml_reshape_4d( ctx, q,
+        q->ne[0] / H,
+        H,
+        q->ne[1],
+        q->ne[2] );
+    // b t h d -> b h t d
+    q = ggml_permute( ctx, q, 0, 2, 1, 3 );
+
+    if ( attn->rope_max_period ) {
+        std::tie(q, k) = moshi_apply_rope( ctx, q, k, tsemb, false );
+    }
+
+    if ( attn->causal && ! attn->cross_attention ) {
+        assert( k->ne[1] == T );
+
+        std::tie( k, v ) = moshi_kv_cache_insert_kv( ctx,
+            state->kv_cache->keys, state->kv_cache->values,
+            indices, k, v );
+    }
+
+    assert( attn_bias || ! attn->causal );
+
+    //x = nn.functional.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
+    auto x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
+        q, k, v, attn_bias );//, dropout_p=0.0);
+
+    //x = rearrange(x, "b h t d -> b t (h d)")
+    // b h t d -> b t h d
+    auto x2 = ggml_cont( ctx, ggml_permute( ctx, x, 0, 2 ,1 ,3 ) );
+    // b t h d -> b t (h d)
+    x = ggml_reshape_3d( ctx, x2,
+        x2->ne[0] * x2->ne[1],
+        x2->ne[2],
+        x2->ne[3] );
+
+    x = torch_nn_linear( ctx, attn->out_projs[0], x );
+
+    return x;
+}
+
+ggml_tensor * moshi_streaming_multihead_cross_attention(
+        GraphContext & ctx,
+        moshi_smha_t * attn,
+        moshi_smha_state_t * state,
+        ggml_tensor * query
+    ) {
+    CAPTURE_GROUP( "multihead_cross_attention" );
+
+    int T = (int) query->ne[1];
+    int H = attn->num_heads;
+
+    assert( attn->cross_attention );
+    assert( ! attn->causal );
+    assert( attn->in_projs.size() == 1 );
+    assert( attn->out_projs.size() == 1 );
+
+    auto in_proj = attn->in_projs[0];
+    int dim = (int) in_proj->weight->ne[1] / 3;
+    auto q = torch_nn_linear_view( ctx, in_proj, 0, dim, query );
+
+    auto k = state->k_cross;
+    auto v = state->v_cross;
+
+    // b t (h d) -> b t h d
+    q = ggml_reshape_4d( ctx, q,
+        q->ne[0] / H,
+        H,
+        q->ne[1],
+        q->ne[2] );
+    // b t h d -> b h t d
+    q = ggml_permute( ctx, q, 0, 2, 1, 3 );
+
+    //x = nn.functional.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
+    auto x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
+        q, k, v, NULL );//, dropout_p=0.0);
+
+    //x = rearrange(x, "b h t d -> b t (h d)")
+    // b h t d -> b t h d
+    auto x2 = ggml_cont( ctx, ggml_permute( ctx, x, 0, 2 ,1 ,3 ) );
+    // b t h d -> b t (h d)
+    x = ggml_reshape_3d( ctx, x2,
+        x2->ne[0] * x2->ne[1],
+        x2->ne[2],
+        x2->ne[3] );
+
+    x = torch_nn_linear( ctx, attn->out_projs[0], x );
+
     return x;
 }
 
@@ -683,7 +881,6 @@ struct moshi_streaming_transformer_layer_t {
 };
 
 struct moshi_streaming_transformer_layer_state_t {
-    int offset;
     own_ptr<moshi_smha_state_t> self_attn;
     own_ptr<moshi_smha_state_t> cross_attention;
 };
@@ -693,7 +890,6 @@ moshi_streaming_transformer_layer_state_t * moshi_streaming_transformer_layer_st
         moshi_streaming_transformer_layer_t * layer,
         ggml_tensor * k_cross ) {
     auto states = new moshi_streaming_transformer_layer_state_t;
-    states->offset = 0;
     states->self_attn = moshi_smha_state( state_ctx, layer->self_attn, NULL );
     if ( layer->cross_attention )
         states->cross_attention = moshi_smha_state( state_ctx,
@@ -703,21 +899,22 @@ moshi_streaming_transformer_layer_state_t * moshi_streaming_transformer_layer_st
     return states;
 }
 
-void init( moshi_streaming_transformer_layer_state_t * states ) {
-    states->offset = 0;
-    init( states->self_attn );
+void init( ScratchContext * ctx, moshi_streaming_transformer_layer_state_t * states,
+        moshi_streaming_transformer_layer_t * layer,
+        ggml_tensor * condition_cross ) {
+    init( ctx, states->self_attn, layer->self_attn, NULL );
     if ( states->cross_attention )
-        init( states->cross_attention );
+        init( ctx, states->cross_attention, layer->cross_attention, condition_cross );
 }
 
 ggml_tensor * moshi_streaming_transformer_layer(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_streaming_transformer_layer_t * layer,
         moshi_streaming_transformer_layer_state_t * states,
+        ggml_tensor * indices,
         ggml_tensor * x,
         ggml_tensor * attn_bias,
-        timestep_embedding_t * tsemb,
-        ggml_tensor * cross_attention_src = NULL) {
+        timestep_embedding_t * tsemb ) {
 
     //////////// x = layer._sa_block(x)
 
@@ -728,8 +925,8 @@ ggml_tensor * moshi_streaming_transformer_layer(
         nx = torch_nn_layer_norm(ctx, layer->norm1, x);
 
     auto update = moshi_streaming_multihead_attention( ctx,
-        layer->self_attn, states->self_attn,
-        nx, nx, nx, attn_bias, tsemb );
+        layer->self_attn, states->self_attn, indices,
+        nx, nx, /*nx,*/ attn_bias, tsemb );
 
     if ( layer->layer_scale_1 ) {
         update = moshi_layer_scale( ctx, layer->layer_scale_1, update );
@@ -739,11 +936,73 @@ ggml_tensor * moshi_streaming_transformer_layer(
     if ( layer->cross_attention ) {
         nx = torch_nn_layer_norm( ctx, layer->norm_cross, x );
 
-        // queries are from src, keys and values from cross_attention_src.
-        //update = layer.cross_attention(nx, cross_attention_src, cross_attention_src)
-        update = moshi_streaming_multihead_attention( ctx,
+        update = moshi_streaming_multihead_cross_attention( ctx,
+            layer->cross_attention, states->cross_attention, nx );
+
+        x = ggml_add( ctx, x, update );
+    }
+
+    //////////// x = layer._ff_block(x)
+
+    if ( layer->norm2_rms )
+        nx = moshi_rms_norm( ctx, layer->norm2_rms, x );
+    else
+        nx = torch_nn_layer_norm( ctx, layer->norm2, x );
+
+    assert( layer->gating.size() <= 1 && layer->weights_per_step_schedule.size() == 0 );
+    if ( ! layer->gating.size() ) {
+        //linear1_r = layer.linear1(nx)
+        auto linear1_r = torch_nn_linear( ctx, layer->linear1, nx );
+
+        auto activated = ggml_gelu( ctx, linear1_r );
+
+        //update = layer.linear2(activated)
+        update = torch_nn_linear( ctx, layer->linear2, activated );
+    } else {
+        update = moshi_activation_gating( ctx, layer->gating[0], nx );
+    }
+
+    if ( layer->layer_scale_2 ) {
+        update = moshi_layer_scale( ctx, layer->layer_scale_2, update );
+    }
+    x = ggml_add( ctx, x, update );
+
+    return x;
+}
+
+ggml_tensor * moshi_streaming_transformer_layer(
+        GraphContext & ctx,
+        moshi_streaming_transformer_layer_t * layer,
+        moshi_streaming_transformer_layer_state_t * states,
+        ggml_tensor * indices,
+        int offset,
+        ggml_tensor * x,
+        ggml_tensor * attn_bias,
+        timestep_embedding_t * tsemb ) {
+
+    //////////// x = layer._sa_block(x)
+
+    ggml_tensor * nx;
+    if ( layer->norm1_rms )
+        nx = moshi_rms_norm(ctx, layer->norm1_rms, x);
+    else
+        nx = torch_nn_layer_norm(ctx, layer->norm1, x);
+
+    auto update = moshi_streaming_multihead_attention( ctx,
+        layer->self_attn, states->self_attn, indices, offset,
+        nx, nx, /*nx,*/ attn_bias, tsemb );
+
+    if ( layer->layer_scale_1 ) {
+        update = moshi_layer_scale( ctx, layer->layer_scale_1, update );
+    }
+    x = ggml_add( ctx, x, update );
+
+    if ( layer->cross_attention ) {
+        nx = torch_nn_layer_norm( ctx, layer->norm_cross, x );
+
+        update = moshi_streaming_multihead_cross_attention( ctx,
             layer->cross_attention, states->cross_attention,
-            nx, cross_attention_src, cross_attention_src, NULL, tsemb );
+            nx );
 
         x = ggml_add( ctx, x, update );
     }
@@ -766,7 +1025,7 @@ ggml_tensor * moshi_streaming_transformer_layer(
     } else if ( layer->gating.size() > 1 || layer->weights_per_step_schedule.size() ) {
         update = moshi_apply_weights_per_step_gating( ctx,
             layer->gating, layer->weights_per_step_schedule,
-            nx, states->offset );
+            nx, offset );
     } else {
         update = moshi_activation_gating( ctx, layer->gating[0], nx );
     }
@@ -776,9 +1035,9 @@ ggml_tensor * moshi_streaming_transformer_layer(
     }
     x = ggml_add( ctx, x, update );
 
-    states->offset += (int) x->ne[1];
     return x;
 }
+
 
 void get_weights( WeightLoader * loader, std::string path,
         moshi_streaming_transformer_layer_t * layer ) {
@@ -830,12 +1089,28 @@ void get_weights( WeightLoader * loader, std::string path,
 \*************************************************************/
 
 struct moshi_streaming_transformer_t {
+    int context;
+    int weights_per_step;
+    int capacity;
+    int rope_max_period;
+    int dim_per_head;
     own_ptr_vector<moshi_streaming_transformer_layer_t> layers;
     bias_pattern_t pattern;
 };
 
+struct moshi_streaming_transformer_graph_t {
+    own_ptr<GraphContext> ctx;
+    ggml_tensor * attn_bias;
+    ggml_tensor * offset;
+    ggml_tensor * indices;
+    ggml_tensor * x;
+    ggml_tensor * result;
+};
+
 struct moshi_streaming_transformer_state_t {
+    int offset;
     own_ptr_vector<moshi_streaming_transformer_layer_state_t> layers;
+    moshi_streaming_transformer_graph_t graph;
 };
 
 moshi_streaming_transformer_state_t * moshi_streaming_transformer_state(
@@ -851,42 +1126,177 @@ moshi_streaming_transformer_state_t * moshi_streaming_transformer_state(
     return states;
 }
 
-void init( moshi_streaming_transformer_state_t *states ) {
-    for ( auto layer : states->layers )
-        init( layer );
+void init( ScratchContext * ctx, moshi_streaming_transformer_state_t *states,
+        moshi_streaming_transformer_t * m,
+        ggml_tensor * condition_cross ) {
+    states->offset = 0;
+    for ( size_t idx = 0; idx < m->layers.size(); idx++ ) {
+        init( ctx, states->layers[idx], m->layers[idx], condition_cross );
+    }
+}
+
+ggml_tensor * moshi_streaming_transformer(
+        GraphContext & ctx,
+        moshi_streaming_transformer_t * m,
+        moshi_streaming_transformer_state_t * states,
+        int offset,
+        ggml_tensor * attn_bias,
+        timestep_embedding_t * tsemb,
+        ggml_tensor * indices,
+        ggml_tensor * x ) {
+
+    for ( size_t idx = 0; idx < m->layers.size(); idx++ ) {
+        CAPTURE_GROUP( "layer." + std::to_string(idx) );
+        auto layer = m->layers[idx];
+        auto layer_states = states->layers[idx];
+        x = moshi_streaming_transformer_layer( ctx, layer, layer_states,
+            indices, offset, x, attn_bias, tsemb
+        );
+    }
+
+    return x;
+}
+
+ggml_tensor * moshi_streaming_transformer(
+        GraphContext & ctx,
+        moshi_streaming_transformer_t * m,
+        moshi_streaming_transformer_state_t * states,
+        ggml_tensor * attn_bias,
+        timestep_embedding_t * tsemb,
+        ggml_tensor * indices,
+        ggml_tensor * x ) {
+
+    for ( size_t idx = 0; idx < m->layers.size(); idx++ ) {
+        CAPTURE_GROUP( "layer." + std::to_string(idx) );
+        auto layer = m->layers[idx];
+        auto layer_states = states->layers[idx];
+        x = moshi_streaming_transformer_layer( ctx, layer, layer_states,
+            indices, x, attn_bias, tsemb
+        );
+    }
+
+    return x;
 }
 
 ggml_tensor * moshi_streaming_transformer(
         ScratchContext & ctx,
         moshi_streaming_transformer_t * m,
         moshi_streaming_transformer_state_t * states,
-        ggml_tensor * x,
-        ggml_tensor * cross_attention_src = NULL ) {
-    //ProfileScope profile(transformer_us);
+        ggml_tensor * x ) {
 
-    // self_attn kv_cache capacity, to build k_pos once
-    auto attn = m->layers[0]->self_attn.ptr;
-    int offset = states->layers[0]->self_attn->offset;
+    auto rope_max_period = m->rope_max_period;
+    int64_t D = m->dim_per_head;
+    int capacity = m->capacity;
+
+    int offset = states->offset;
+
     int64_t T = x->ne[1];
-    auto attn_bias = calculate_attn_bias( ctx, attn, T, offset, &m->pattern );
 
-    auto rope_max_period = m->layers[0]->self_attn->rope_max_period;
+    auto attn_bias = get_attn_bias( ctx, &m->pattern, capacity, T, offset );
+
     timestep_embedding_t tsemb = { NULL, NULL };
     if ( rope_max_period ) {
         auto toffset = ctx.constant( (float)offset );
-        int64_t D = m->layers[0]->self_attn->embed_dim / m->layers[0]->self_attn->num_heads;
         moshi_get_timestep_embedding( ctx, (int)T, (int)D, toffset, rope_max_period, tsemb );
     }
 
-    for ( size_t idx = 0; idx < m->layers.size(); idx++ ) {
-        CAPTURE_GROUP( "layer." + std::to_string(idx) );
-        auto layer = m->layers[idx];
-        auto layer_states = states->layers[idx];
-        x = moshi_streaming_transformer_layer( ctx, layer, layer_states, x,
-                attn_bias, &tsemb, cross_attention_src );
-    }
+    std::vector<int> offsets(T);
+    for (int i = 0; i < offsets.size(); i++)
+        offsets[i] = (offset + i) % capacity;
+    NE ne = { T, 1, 1, 1 };
+    auto indices = ctx.input( ne, offsets );
+
+    x = moshi_streaming_transformer( ctx, m, states, offset, attn_bias, &tsemb, indices, x );
+
+    states->offset += T;
 
     return x;
+}
+
+ggml_tensor * moshi_streaming_transformer_graph(
+        ScratchContext & ctx,
+        moshi_streaming_transformer_t * m,
+        moshi_streaming_transformer_state_t * states,
+        ggml_tensor * x ) {
+
+    auto rope_max_period = m->rope_max_period;
+    int64_t D = m->dim_per_head;
+    int capacity = m->capacity;
+
+    int64_t T = x->ne[1];
+
+    int offset = states->offset;
+    states->offset += T;
+
+    if ( ! states->graph.ctx ) {
+        // create graph
+        states->graph.ctx = new GraphContext( 256, ctx.backend );
+
+        // attn_bias
+        states->graph.attn_bias = ggml_new_tensor_2d( *states->graph.ctx,
+            GGML_TYPE_F32, capacity, T );
+
+        // offset for timestep_embedding
+        timestep_embedding_t tsemb = { NULL, NULL };
+        if ( rope_max_period ) {
+            states->graph.offset = ggml_new_tensor_1d( *states->graph.ctx,
+                GGML_TYPE_F32, 1 );
+            moshi_get_timestep_embedding( *states->graph.ctx, (int)T, (int)D,
+                states->graph.offset, rope_max_period, tsemb );
+        } else {
+            states->graph.offset = NULL;
+        }
+
+        states->graph.indices = ggml_new_tensor_1d( *states->graph.ctx,
+            GGML_TYPE_I32, T );
+
+        states->graph.x = ggml_dup_tensor( *states->graph.ctx, x );
+
+        auto result = moshi_streaming_transformer( *states->graph.ctx,
+            m, states,
+            states->graph.attn_bias,
+            &tsemb,
+            states->graph.indices,
+            states->graph.x );
+
+        states->graph.result = ggml_dup_tensor( *states->graph.ctx, result );
+        auto result_cpy = ggml_cpy( *states->graph.ctx, result, states->graph.result );
+        states->graph.ctx->build_forward_expand( result_cpy );
+
+        states->graph.ctx->alloc();
+    }
+
+    // cpy attn_bias
+    if ( states->graph.attn_bias ) {
+        auto attn_bias = get_attn_bias( ctx, &m->pattern, capacity, T, offset );
+        attn_bias = ggml_cpy( ctx, attn_bias, states->graph.attn_bias );
+        ctx.build_forward_expand( attn_bias );
+    }
+
+    // cpy offset
+    if ( states->graph.offset ) {
+        float foffset = (float)offset;
+        ggml_backend_tensor_set( states->graph.offset, &foffset, 0, 4 );
+    }
+
+    // cpy indices
+    std::vector<int> offsets(T);
+    for (int i = 0; i < offsets.size(); i++)
+        offsets[i] = (offset + i) % capacity;
+    ggml_backend_tensor_set( states->graph.indices, offsets.data(), 0, T * 4 );
+
+    // cpy x
+    auto x_cpy = ggml_cpy( ctx, x, states->graph.x );
+    ctx.build_forward_expand( x_cpy );
+
+    // copy inputs to transformer graph
+    ctx.compute();
+
+    // compute transformer
+    states->graph.ctx->compute();
+
+    // result is static and can be used by scratch ctx
+    return states->graph.result;
 }
 
 void get_weights( WeightLoader * loader, std::string path,

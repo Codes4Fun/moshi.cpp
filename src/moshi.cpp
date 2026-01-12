@@ -233,7 +233,7 @@ static void mimi_encode_alloc_context( mimi_encode_context_t * context, mimi_cod
 
     state_ctx->alloc();
     state_ctx->init();
-    init( mimi_states );
+    init( codec->moshi->scratch, mimi_states, codec->mimi );
 
     context->codec = codec;
     context->state_ctx = state_ctx;
@@ -282,7 +282,7 @@ static void mimi_decode_alloc_context( mimi_decode_context_t * context, mimi_cod
 
     state_ctx->alloc();
     state_ctx->init();
-    init( mimi_states );
+    init( codec->moshi->scratch, mimi_states, codec->mimi );
 
     context->codec = codec;
     context->state_ctx = state_ctx;
@@ -805,7 +805,9 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
     const int initial_padding = 2;
     const int second_stream_ahead = gen->lm->second_stream_ahead;
     gen->state_ctx = new StateContext( moshi->backend );
+    ggml_tensor * condition_cross = NULL;
     if ( gen->voice ) {
+        condition_cross = gen->voice->cross;
         gen->machine = new StateMachine(gen->lm->model->text_card + 1, second_stream_ahead, max_padding, initial_padding);
         gen->machine->logging = logging;
         gen->machine_state = gen->machine->new_state();
@@ -813,7 +815,7 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
             gen->lm->model,
             true, depth_temperature, text_temperature, 250, 25,
             gen->machine, gen->machine_state,
-            gen->voice->sum, gen->voice->cross,
+            gen->voice->sum,
             &gen->voice->text_prefixes, &gen->voice->audio_prefixes
         };
         gen->lm_states = moshi_lmmodel_states( gen->state_ctx, gen->lm->model, gen->voice->cross );
@@ -822,7 +824,7 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
             gen->lm->model,
             true, depth_temperature, text_temperature, 250, 25,
             NULL, NULL, // no state machine
-            NULL, NULL, // no cross
+            NULL, // no cross
             NULL, NULL, // empty prefixes
         };
         gen->lm_states = moshi_lmmodel_states( gen->state_ctx, gen->lm->model, NULL );
@@ -830,7 +832,7 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
     gen->lmgen_state = moshi_lmgen_state( gen->lm->model );
     gen->state_ctx->alloc();
     gen->state_ctx->init();
-    init( gen->lm_states );
+    init( moshi->scratch, gen->lm_states, gen->lm->model, condition_cross );
 
     gen->ctx = new ScratchContext( 256, moshi->backend );
     gen->audio_tokens.resize( gen->lm->model->num_audio_codebooks );

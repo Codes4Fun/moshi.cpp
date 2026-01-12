@@ -74,11 +74,11 @@ void get_weights( WeightLoader * loader, moshi_mimi_t * mimi ) {
 }
 */
 
-void init( moshi_mimi_state_t * states ) {
+void init( ScratchContext * ctx, moshi_mimi_state_t * states, moshi_mimi_t * mimi ) {
     if ( states->decoder_transformer )
-        init( states->decoder_transformer );
+        init( ctx, states->decoder_transformer, mimi->decoder_transformer , NULL );
     if ( states->encoder_transformer )
-        init( states->encoder_transformer );
+        init( ctx, states->encoder_transformer, mimi->encoder_transformer , NULL );
 }
 
 ggml_tensor * mimi_decode_latent(

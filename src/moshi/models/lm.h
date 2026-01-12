@@ -414,10 +414,12 @@ moshi_lmmodel_states_t * moshi_lmmodel_states( StateContext * state_ctx,
     return state;
 }
 
-void init( moshi_lmmodel_states_t * state ) {
-    init( state->transformer );
+void init( ScratchContext * ctx, moshi_lmmodel_states_t * state,
+        moshi_lmmodel_t * lm,
+        ggml_tensor * condition_cross ) {
+    init( ctx, state->transformer, lm->transformer, condition_cross );
     if ( state->depformer )
-        init( state->depformer );
+        init( ctx, state->depformer, lm->depformer, NULL );
 }
 
 ggml_tensor * moshi_lmmodel_forward_depformer_transform(
@@ -451,6 +453,9 @@ ggml_tensor * moshi_lmmodel_forward_depformer_transform(
     return logits;
 }
 
+
+//#define ENABLE_SINGLE_GRAPH
+
 void moshi_lmmodel_depformer_step(
         ScratchContext & ctx,
         moshi_lmmodel_t * lm,
@@ -463,7 +468,7 @@ void moshi_lmmodel_depformer_step(
     ) {
     depformer_tokens.resize( lm->dep_q );
 
-    init( state->depformer );
+    init( &ctx, state->depformer, lm->depformer, NULL );
 
     auto last_token_input = lm->demux_second_stream?
         moshi_scaled_embedding_demux( ctx, lm->depformer_text_emb_demux, text_token ) :
@@ -473,25 +478,44 @@ void moshi_lmmodel_depformer_step(
         0, last_token_input, state->transformer_out );
 
     ON_NTH( 8, ctx.set_name( "depformer_32" ) );
+#ifdef ENABLE_SINGLE_GRAPH
+    auto next_token = moshi_sample_token( ctx, logits, use_sampling, temp, top_k );
+    ctx.build_forward_expand( next_token, &depformer_tokens[0] );
+#else
     //ctx.compute(); this will be done by sampler
     auto next_token = moshi_sample_token_int( ctx, logits, use_sampling, temp, top_k );
     depformer_tokens[0] = next_token;
+#endif
 
     for (int cb_index = 1; cb_index < lm->dep_q; cb_index++) {
         auto index = cb_index - 1;
 
+#ifdef ENABLE_SINGLE_GRAPH
+        last_token_input = moshi_scaled_embedding_chained( ctx,
+            lm->depformer_emb[index], next_token );
+#else
+        assert( next_token >= 0 ); // hypothetically sampling should pass this
         last_token_input = moshi_scaled_embedding( ctx,
             lm->depformer_emb[index], next_token );
+#endif
 
         logits = moshi_lmmodel_forward_depformer_transform(
             ctx, lm, state, cb_index,
             last_token_input,
             state->transformer_out );
 
+#ifdef ENABLE_SINGLE_GRAPH
+        next_token = moshi_sample_token( ctx, logits, use_sampling, temp, top_k );
+        ctx.build_forward_expand( next_token, &depformer_tokens[cb_index] );
+#else
         //ctx.compute(); this will be done by the sampler
         next_token = moshi_sample_token_int( ctx, logits, use_sampling, temp, top_k );
         depformer_tokens[cb_index] = next_token;
+#endif
     }
+#ifdef ENABLE_SINGLE_GRAPH
+    ctx.compute();
+#endif
 }
 
 
@@ -527,16 +551,15 @@ std::tuple<ggml_tensor*, ggml_tensor*> moshi_lmmodel_forward_text(
         moshi_lmmodel_t * lm,
         moshi_lmmodel_states_t * state,
         std::vector<int> & sequence,
-        ggml_tensor * sum_condition,
-        ggml_tensor * cross_attention_src
+        ggml_tensor * sum_condition
     ) {
     //ProfileScope profile(time_forward_text_us);
     //assert len(sequence) == lm.num_codebooks
 
     auto input = moshi_lmmodel_text_token_embed( ctx, lm, sequence, sum_condition );
 
-    auto transformer_out = moshi_streaming_transformer( ctx,
-        lm->transformer, state->transformer, input, cross_attention_src );
+    auto transformer_out = moshi_streaming_transformer_graph( ctx,
+        lm->transformer, state->transformer, input );
 
     if ( lm->out_norm )
         transformer_out = moshi_rms_norm( ctx, lm->out_norm, transformer_out );
@@ -593,7 +616,6 @@ struct moshi_lmgen_t {
 
     // these are from LMGenState
     ggml_tensor * condition_sum;
-    ggml_tensor * condition_cross;
 
     // these are from the TTSModel callbacks on_text, on_audio
     std::deque<int> * text_prefixes;
@@ -620,7 +642,6 @@ bool moshi_lmgen_step(
     auto machine = lmgen->machine;
     auto machine_state = lmgen->machine_state;
     auto condition_sum = lmgen->condition_sum;
-    auto condition_cross = lmgen->condition_cross;
     auto text_prefixes = lmgen->text_prefixes;
     auto audio_prefixes = lmgen->audio_prefixes;
     //ProfileScope profile(time_lmgen_step_us);
@@ -660,7 +681,7 @@ bool moshi_lmgen_step(
 
     auto [scratch_transformer_out, text_logits] = moshi_lmmodel_forward_text(
         scratch, lm, lm_states,
-        input, condition_sum, condition_cross);
+        input, condition_sum );
 
     auto cpy_transformer_out = ggml_cpy( scratch,
         scratch_transformer_out, lm_states->transformer_out );
