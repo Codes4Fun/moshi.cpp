@@ -225,7 +225,7 @@ CUDA benchmarks (beta2 wip):
 | NVIDIA | RTX 4060        |  8 | CUDA   | linux |   19.10 |   67.86 | 🟢 17.49 |
 | NVIDIA | RTX 3060        | 12 | CUDA   | linux |   17.76 |   70.85 | 🟢 17.44 |
 | NVIDIA | RTX 2070 Laptop |  8 | CUDA   | linux |   18.03 |   72.81 | 🟢 16.54 |
-| NVIDIA | RTX 2070 Laptop |  8 | CUDA   | win11 |   15.43 |   36.56 | 🟢 13.52 |
+| NVIDIA | RTX 2070 Laptop |  8 | CUDA   | win10 |   15.43 |   36.56 | 🟢 13.52 |
 | NVIDIA | RTX 4060        |  8 | CUDA   | win11 |   14.45 |   32.37 | 🟢 12.40 |
 | NVIDIA | RTX 3060        | 12 | CUDA   | win11 |   13.32 |   31.08 | 🔴 11.88 |
 | NVIDIA | GTX 1070        |  8 | CUDA   | win11 |    8.42 |   27.76 | 🔴  6.56 |
