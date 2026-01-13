@@ -46,7 +46,7 @@ struct moshi_streaming_conv_1d_t {
 };
 
 ggml_tensor * moshi_streaming_conv_1d (
-        ScratchContext & ctx,
+        GraphContext & ctx,
         ggml_tensor * prev,
         moshi_streaming_conv_1d_t * conv,
         ggml_tensor * x ) {

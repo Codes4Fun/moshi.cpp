@@ -12,7 +12,7 @@ struct moshi_seanet_resnet_block_t {
 };
 
 ggml_tensor * moshi_seanet_resnet_block(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         ggml_tensor * prev,
         moshi_seanet_resnet_block_t * resnet,
         ggml_tensor * x ) {
@@ -88,7 +88,7 @@ struct moshi_seanet_encoder_states_t {
 };
 
 ggml_tensor * moshi_seanet_encoder(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_seanet_encoder_states_t * states,
         moshi_seanet_encoder_t * encoder,
         ggml_tensor * x) {
@@ -181,7 +181,7 @@ struct moshi_seanet_decoder_states_t {
 };
 
 ggml_tensor * moshi_seanet_decoder(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_seanet_decoder_states_t * states,
         moshi_seanet_decoder_t * decoder,
         ggml_tensor * x) {

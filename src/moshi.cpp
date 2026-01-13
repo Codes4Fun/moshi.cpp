@@ -63,15 +63,14 @@ struct mimi_encode_context_t {
     mimi_codec_t * codec;
     own_ptr<StateContext> state_ctx;
     own_ptr<moshi_mimi_state_t> states;
-    ggml_tensor * device_frame;
     std::vector<int> tokens;
+    std::vector<float> frame;
 };
 
 struct mimi_decode_context_t {
     mimi_codec_t * codec;
     own_ptr<StateContext> state_ctx;
     own_ptr<moshi_mimi_state_t> states;
-    ggml_tensor * device_frame;
     std::vector<int> tokens;
     std::vector<float> frame;
 };
@@ -228,8 +227,6 @@ static void mimi_encode_alloc_context( mimi_encode_context_t * context, mimi_cod
     auto state_ctx = new StateContext( codec->moshi->backend );
     auto mimi_states = moshi_mimi_encoder_states( state_ctx, codec->mimi );
     int frame_size = mimi_frame_size( codec );
-    ggml_tensor * device_frame = NULL;
-    state_ctx->new_tensor( GGML_NE(frame_size), GGML_TYPE_F32, &device_frame );
 
     state_ctx->alloc();
     state_ctx->init();
@@ -238,7 +235,7 @@ static void mimi_encode_alloc_context( mimi_encode_context_t * context, mimi_cod
     context->codec = codec;
     context->state_ctx = state_ctx;
     context->states = mimi_states;
-    context->device_frame = device_frame;
+    context->frame.resize( frame_size );
 }
 
 mimi_encode_context_t * mimi_encode_alloc_context( mimi_codec_t * codec ) {
@@ -252,19 +249,22 @@ void unref( mimi_encode_context_t * context ) {
 }
 
 void mimi_encode_send( mimi_encode_context_t * context, float * frame ) {
-    auto device_frame = context->device_frame;
-    ggml_backend_tensor_set( device_frame, frame, 0, ggml_nbytes( device_frame ) );
+    memcpy( context->frame.data(), frame, context->frame.size() * 4 );
 }
 
 void mimi_encode_receive( mimi_encode_context_t * context, int16_t * tokens ) {
     auto & ctx = *context->codec->moshi->scratch;
     auto mimi = context->codec->mimi.ptr;
     auto states = context->states.ptr;
-    auto codes = mimi_encode( ctx, mimi, states, context->device_frame );
-    auto cast = ggml_cast( ctx, codes, GGML_TYPE_I32 );
-    context->tokens.resize( ggml_nelements( cast ) );
-    ctx.build_forward_expand( cast, context->tokens.data() );
-    ctx.compute();
+
+    mimi_encode(
+        ctx,
+        mimi,
+        states,
+        context->frame,
+        context->tokens
+    );
+
     for ( int i = 0; i < context->tokens.size(); i++ )
         tokens[i] = context->tokens[i];
 }
@@ -277,8 +277,6 @@ static void mimi_decode_alloc_context( mimi_decode_context_t * context, mimi_cod
     NE decoder_ne = {2, 512, 1, 1};
     auto mimi_states = moshi_mimi_states( state_ctx, codec->mimi, upsample_ne, decoder_ne );
     int frame_size = mimi_frame_size( codec );
-    ggml_tensor * device_frame = NULL;
-    state_ctx->new_tensor( GGML_NE(frame_size), GGML_TYPE_F32, &device_frame );
 
     state_ctx->alloc();
     state_ctx->init();
@@ -287,7 +285,6 @@ static void mimi_decode_alloc_context( mimi_decode_context_t * context, mimi_cod
     context->codec = codec;
     context->state_ctx = state_ctx;
     context->states = mimi_states;
-    context->device_frame = device_frame;
     context->tokens.resize( codec->n_q );
     context->frame.resize( frame_size );
 }

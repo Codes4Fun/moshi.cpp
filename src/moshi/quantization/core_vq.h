@@ -25,7 +25,7 @@ ggml_tensor * moshi_EuclideanCodebook_decode(
 }
 
 ggml_tensor * moshi_EuclideanCodebook_encode(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_EuclideanCodebook_t * codebook,
         ggml_tensor * x ) {
     /*
@@ -109,7 +109,7 @@ ggml_tensor * moshi_vq_decode(
 }
 
 ggml_tensor * moshi_vq_encode(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_vq_t * vq,
         ggml_tensor * x ) {
     /* Encodes `x` into discrete integer codes. */
@@ -169,7 +169,7 @@ ggml_tensor * moshi_residual_vq_decode(
 }
 
 ggml_tensor * moshi_residual_vq_encode(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_residual_vq_t * rvq,
         ggml_tensor * x,
         int n_q ) {

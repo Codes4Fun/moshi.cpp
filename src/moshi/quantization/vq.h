@@ -30,7 +30,7 @@ ggml_tensor * moshi_rvq_decode(
 }
 
 ggml_tensor * moshi_rvq_encode(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_rvq_t * rvq,
         ggml_tensor * x ) {
     // x = self.input_proj(x)
@@ -95,7 +95,7 @@ ggml_tensor * moshi_split_rvq_decode(
 }
 
 ggml_tensor * moshi_split_rvq_encode(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_split_rvq_t * srvq,
         ggml_tensor * x
 ) {
