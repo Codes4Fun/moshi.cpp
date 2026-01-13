@@ -219,40 +219,32 @@ These commands output frames per second. Although tts also outputs tokens per se
 
 Moshi operates at 12.5 frames per second, so anything below that would not work for real time applications.
 
-CUDA benchmarks:
-| make   | name               | driver | os    | tts fps | stt fps | sts q4_k |
-|--------|--------------------|--------|-------|---------|---------|----------|
-| NVIDIA | RTX 4090           | CUDA   | linux |   40.07 |  101.99 | 🟢 38.97 |
-| NVIDIA | RTX 4070 Ti        | CUDA   | linux |   29.75 |   83.00 | 🟢 29.18 |
-| NVIDIA | GTX 2070 Laptop 8G | CUDA   | linux |   17.19 |   72.72 | 🟢 15.86 |
-| NVIDIA | GTX 2070 Max-Q 8G  | CUDA   | linux |   15.64 |   64.65 | 🟢 14.30 |
-| NVIDIA | RTX 4070 Ti        | CUDA   | win11 |   15.67 |   33.57 | 🟢 12.69 |
-| NVIDIA | GTX 2070 Laptop 8G | CUDA   | win10 |   13.37 |   34.86 | 🔴  9.85 |
-| NVIDIA | RTX 4060 Laptop 8G | CUDA   | win11 |   12.36 |   30.00 | 🔴  9.41 |
-| NVIDIA | RTX 3060 Laptop 6G | CUDA   | win11 |   10.71 |   30.15 | 🔴   N/A |
-| NVIDIA | GTX 1070           | CUDA   | win11 |    7.04 |   23.40 | 🔴  5.35 |
+CUDA benchmarks (beta2 wip):
+| make   | name            | gb | driver | os    | tts fps | stt fps | sts q4_k |
+|--------|-----------------|----|--------|-------|---------|---------|----------|
+| NVIDIA | RTX 4060        |  8 | CUDA   | linux |   19.10 |   67.86 | 🟢 17.49 |
+| NVIDIA | RTX 3060        | 12 | CUDA   | linux |   17.76 |   70.85 | 🟢 17.44 |
+| NVIDIA | RTX 2070 Laptop |  8 | CUDA   | linux |   18.03 |   72.81 | 🟢 16.54 |
+| NVIDIA | RTX 2070 Laptop |  8 | CUDA   | win11 |   15.43 |   36.56 | 🟢 13.52 |
+| NVIDIA | RTX 4060        |  8 | CUDA   | win11 |   14.45 |   32.37 | 🟢 12.40 |
+| NVIDIA | RTX 3060        | 12 | CUDA   | win11 |   13.32 |   31.08 | 🔴 11.88 |
+| NVIDIA | GTX 1070        |  8 | CUDA   | win11 |    8.42 |   27.76 | 🔴  6.56 |
 
-Vulkan benchmarks:
-| make   | name               | driver | os    | tts fps | stt fps | sts q4_k |
-|--------|--------------------|--------|-------|---------|---------|----------|
-|    AMD | Radeon RX 7900 XT  | Vulkan | linux |   25.08 |   80.40 | 🟢 26.12 |
-|    AMD | Radeon RX 6700 XT  | Vulkan | linux |   17.10 |   53.98 | 🟢 16.97 |
-| NVIDIA | RTX 4090           | Vulkan | linux |   23.26 |   43.41 | 🟢 16.51 |
-|  Intel | ARC B850           | Vulkan | linux |   15.13 |   43.12 | 🟢 13.91 |
-|    AMD | Radeon 8060S       | Vulkan | linux |   11.30 |   34.39 | 🟢 12.71 |
-| NVIDIA | GTX 2070           | Vulkan | linux |   13.39 |   28.35 | 🔴  9.52 |
-|    AMD | Radeon 8060S       | Vulkan | win11 |    8.48 |   21.81 | 🔴  8.37 |
-|    AMD | Radeon RX 7900 XT  | Vulkan | win11 |   14.12 |   19.76 | 🔴  8.22 |
-|  Intel | ARC B850           | Vulkan | win11 |   15.35 |   22.49 | 🔴  8.15 |
-|    AMD | Radeon RX 6700 XT  | Vulkan | win11 |   10.93 |   19.49 | 🔴  6.76 |
-|    AMD | Radeon 890M  HX370 | Vulkan | linux |    6.81 |   20.96 | 🔴  5.70 |
-| NVIDIA | GTX 1070           | Vulkan | win10 |    7.59 |   25.35 | 🔴  5.35 |
-|    AMD | Radeon 780M        | Vulkan | linux |    5.98 |   18.43 | 🔴  5.23 |
-| NVIDIA | RTX 4060 Laptop 8G | Vulkan | win11 |    8.01 |   10.44 | 🔴  3.77 |
-|    AMD | Radeon 890M  8840U | Vulkan | linux |    4.41 |    9.42 | 🔴  3.22 |
-| NVIDIA | RTX 4070 Ti        | Vulkan | win11 |    8.89 |    8.63 | 🔴  2.97 |
+Vulkan benchmarks (beta2 wip):
+| make   | name              | gb | driver | os    | tts fps | stt fps | sts q4_k |
+|--------|-------------------|----|--------|-------|---------|---------|----------|
+|    AMD | Radeon RX 7900 XT | 20 | Vulkan | linux |   26.36 |   79.87 | 🟢 27.94 |
+|    AMD | Radeon RX 6700 XT | 12 | Vulkan | linux |   18.26 |   53.92 | 🟢 17.60 |
+|    AMD | Radeon RX 7900 XT | 20 | Vulkan | win11 |   17.15 |   21.15 | 🟢 17.19 |
+|  Intel | ARC B850          | 12 | Vulkan | win11 |   18.18 |   25.72 | 🟢 16.78 |
+|  Intel | ARC B850          | 12 | Vulkan | linux |   15.54 |   45.35 | 🟢 15.54 |
+|    AMD | Radeon 8060S      | 64 | Vulkan | linux |   12.34 |   36.38 | 🟢 14.88 |
+|    AMD | Radeon RX 6700 XT | 12 | Vulkan | win11 |   12.89 |   21.73 | 🟢 13.52 |
+|    AMD | Radeon 8060S      | 64 | Vulkan | win11 |    9.94 |   23.30 | 🟢 12.49 |
+|    AMD | Radeon 890M HX370 | 16 | Vulkan | linux |    7.34 |   21.44 | 🔴  6.34 |
+|    AMD | Radeon 890M HX370 | 16 | Vulkan | win11 |    6.08 |   11.33 | 🔴  4.99 |
 
-CPU benchmarks:
+CPU benchmarks (alpha):
 | make  | name              | driver | tts fps | stt fps | threads |
 |-------|-------------------|--------|---------|---------|---------|
 |   AMD | Ryzen AI MAX+ 395 | CPU    |    4.24 |    8.36 |       8 |
