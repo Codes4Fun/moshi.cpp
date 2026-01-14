@@ -274,6 +274,35 @@ class GraphContext {
         return ctx;
     }
 
+    ggml_tensor * new_tensor( ggml_type type, NE ne ) {
+        auto tensor = ggml_new_tensor( ctx, type, 4, ne );
+        return tensor;
+    }
+
+    virtual void tensor_set( ggml_tensor * tensor, int32_t value ) {
+        assert( buffer );
+        assert( tensor->type == GGML_TYPE_I32 && ggml_nelements( tensor ) == 1 );
+        ggml_backend_tensor_set( tensor, &value, 0, 4 );
+    }
+
+    virtual void tensor_set( ggml_tensor * tensor, float value ) {
+        assert( buffer );
+        assert( tensor->type == GGML_TYPE_F32 && ggml_nelements( tensor ) == 1 );
+        ggml_backend_tensor_set( tensor, &value, 0, 4 );
+    }
+
+    virtual void tensor_set( ggml_tensor * tensor, std::vector<int32_t> & value ) {
+        assert( buffer );
+        assert( tensor->type == GGML_TYPE_I32 && ggml_nelements( tensor ) == value.size() );
+        ggml_backend_tensor_set( tensor, value.data(), 0, 4 * value.size() );
+    }
+
+    virtual void tensor_set( ggml_tensor * tensor, std::vector<float> & value ) {
+        assert( buffer );
+        assert( tensor->type == GGML_TYPE_F32 && ggml_nelements( tensor ) == value.size() );
+        ggml_backend_tensor_set( tensor, value.data(), 0, 4 * value.size() );
+    }
+
     ggml_tensor * constant( int32_t i32 ) {
         if (backend) {
             auto tensor = ggml_new_tensor_1d( ctx, GGML_TYPE_I32, 1 );
@@ -444,6 +473,31 @@ class ScratchContext : public GraphContext {
         return tensor;
     }
 
+    virtual void tensor_set( ggml_tensor * tensor, int32_t value ) {
+        assert( tensor->type == GGML_TYPE_I32 && ggml_nelements( tensor ) == 1 );
+        constants32.push_back({ tensor, value });
+    }
+
+    virtual void tensor_set( ggml_tensor * tensor, float value ) {
+        assert( tensor->type == GGML_TYPE_F32 && ggml_nelements( tensor ) == 1 );
+            constants32.push_back({ tensor, *(int32_t*)&value });
+    }
+
+    virtual void tensor_set( ggml_tensor * tensor, std::vector<int32_t> & value ) {
+        assert( tensor->type == GGML_TYPE_I32 && ggml_nelements( tensor ) == value.size() );
+        constants.push_back({tensor});
+        auto & constant = constants.back();
+        constant.data.resize( ggml_nbytes( tensor ) );
+        memcpy( constant.data.data(), value.data(), ggml_nbytes( tensor ) );
+    }
+
+    virtual void tensor_set( ggml_tensor * tensor, std::vector<float> & value ) {
+        assert( tensor->type == GGML_TYPE_F32 && ggml_nelements( tensor ) == value.size() );
+        constants.push_back({tensor});
+        auto & constant = constants.back();
+        constant.data.resize( ggml_nbytes( tensor ) );
+        memcpy( constant.data.data(), value.data(), ggml_nbytes( tensor ) );
+    }
 
     ggml_tensor * input( NE ne, std::vector<int> & i32 ) {
         auto tensor = ggml_new_tensor( ctx, GGML_TYPE_I32, 4, ne );

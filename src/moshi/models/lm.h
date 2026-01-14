@@ -393,10 +393,20 @@ void get_weights( WeightLoader * loader, std::string path, moshi_lmmodel_t * lm 
     get_weights( loader, path + "text_linear.", lm->text_linear);
 }
 
+struct lmmodel_embed_t {
+    embedding_demux_t text_demux;
+    embedding_t text;
+    std::vector<embedding_t> audio;
+};
+
 struct moshi_lmmodel_states_t {
     own_ptr<moshi_streaming_transformer_state_t> transformer;
     own_ptr<moshi_streaming_transformer_state_t> depformer;
+    GraphContext * gctx = NULL;
     ggml_tensor * transformer_out;
+    ggml_tensor * sampler_out;
+    lmmodel_embed_t embed;
+    int  transformer_T;
 };
 
 moshi_lmmodel_states_t * moshi_lmmodel_states( StateContext * state_ctx,
@@ -518,6 +528,59 @@ void moshi_lmmodel_depformer_step(
 #endif
 }
 
+ggml_tensor * moshi_lmmodel_text_token_embed_build(
+        GraphContext & ctx,
+        moshi_lmmodel_t * lm,
+        lmmodel_embed_t * embed,
+        ggml_tensor * sum_condition
+    ) {
+
+    ggml_tensor * input;
+    if ( lm->demux_second_stream ) {
+        input = moshi_scaled_embedding_demux_build( ctx,
+            lm->text_emb_demux, &embed->text_demux );
+    } else {
+        input = moshi_scaled_embedding_build( ctx,
+            lm->text_emb, &embed->text );
+    }
+
+    embed->audio.resize( lm->num_audio_codebooks );
+    for (int cb_index = 0; cb_index < lm->num_audio_codebooks; cb_index++) {
+        auto audio_emb = moshi_scaled_embedding_build( ctx,
+            lm->emb[cb_index], &embed->audio[cb_index] );
+
+        input = ggml_add( ctx, input, audio_emb );
+    }
+
+    if (sum_condition) {
+        input = ggml_add( ctx, sum_condition, input );
+    }
+
+    return input;
+}
+
+void moshi_lmmodel_text_token_embed_step(
+        GraphContext & ctx,
+        moshi_lmmodel_t * lm,
+        lmmodel_embed_t * embed,
+        std::vector<int> & sequence
+    ) {
+
+    if ( lm->demux_second_stream ) {
+        moshi_scaled_embedding_demux_step( ctx, lm->text_emb_demux,
+            &embed->text_demux, sequence[0] );
+    } else {
+        moshi_scaled_embedding_step( ctx, lm->text_emb, &embed->text,
+            sequence[0] );
+    }
+
+    for (int cb_index = 0; cb_index < lm->num_audio_codebooks; cb_index++) {
+        moshi_scaled_embedding_step( ctx,
+            lm->emb[cb_index],
+            &embed->audio[cb_index],
+            sequence[cb_index + lm->audio_offset] );
+    }
+}
 
 ggml_tensor * moshi_lmmodel_text_token_embed(
         ScratchContext & ctx,
@@ -567,6 +630,39 @@ std::tuple<ggml_tensor*, ggml_tensor*> moshi_lmmodel_forward_text(
     auto text_logits = torch_nn_linear( ctx, lm->text_linear, transformer_out );
 
     return { transformer_out, text_logits };
+}
+
+std::tuple<ggml_tensor*, ggml_tensor*> moshi_lmmodel_forward_text_build(
+        GraphContext & ctx,
+        moshi_lmmodel_t * lm,
+        moshi_lmmodel_states_t * state,
+        ggml_tensor * sum_condition
+    ) {
+    auto input = moshi_lmmodel_text_token_embed_build( ctx, lm, &state->embed, sum_condition );
+
+    state->transformer_T = input->ne[1];
+    auto transformer_out = moshi_streaming_transformer_graph_build( ctx,
+        lm->transformer, state->transformer, input );
+
+    if ( lm->out_norm )
+        transformer_out = moshi_rms_norm( ctx, lm->out_norm, transformer_out );
+
+    auto text_logits = torch_nn_linear( ctx, lm->text_linear, transformer_out );
+
+    return { transformer_out, text_logits };
+}
+
+void moshi_lmmodel_forward_text_step(
+        GraphContext & gctx,
+        ScratchContext & ctx,
+        moshi_lmmodel_t * lm,
+        moshi_lmmodel_states_t * state,
+        std::vector<int> & sequence
+    ) {
+    moshi_lmmodel_text_token_embed_step( gctx, lm, &state->embed, sequence );
+
+    moshi_streaming_transformer_graph_step( ctx,
+        lm->transformer, state->transformer, state->transformer_T );
 }
 
 
@@ -679,6 +775,7 @@ bool moshi_lmgen_step(
     ONCE( scratch.set_name("text") );
     ON_NTH( 32, scratch.set_name( "text_32" ) );
 
+#ifdef USE_SCRATCH
     auto [scratch_transformer_out, text_logits] = moshi_lmmodel_forward_text(
         scratch, lm, lm_states,
         input, condition_sum );
@@ -690,6 +787,34 @@ bool moshi_lmgen_step(
     // note this does the compute
     auto text_token = moshi_sample_token_int( scratch, text_logits,
         use_sampling, temp_text, top_k_text );
+#else
+    if ( ! lm_states->gctx ) {
+        lm_states->gctx = new GraphContext( 256, scratch.backend );
+        GraphContext &graph = *lm_states->gctx;
+
+        auto [graph_transformer_out, text_logits] = moshi_lmmodel_forward_text_build(
+            graph, lm, lm_states, condition_sum );
+
+        auto cpy_transformer_out = ggml_cpy( graph,
+            graph_transformer_out, lm_states->transformer_out );
+        graph.build_forward_expand( cpy_transformer_out );
+
+        lm_states->sampler_out = moshi_sample_token( graph, text_logits,
+            use_sampling, temp_text, top_k_text );
+
+        graph.build_forward_expand( lm_states->sampler_out );
+        graph.alloc();
+    }
+
+    GraphContext &graph = *lm_states->gctx;
+    moshi_lmmodel_forward_text_step( graph, scratch, lm, lm_states, input );
+
+    scratch.compute();
+    graph.compute();
+
+    int text_token;
+    ggml_backend_tensor_get( lm_states->sampler_out, &text_token, 0, 4 );
+#endif
 
     // on_text_hook
     if ( machine ) {

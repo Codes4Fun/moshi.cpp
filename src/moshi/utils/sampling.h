@@ -2,7 +2,7 @@
 
 // NOTE: the call to exponential is the main source of randomness
 ggml_tensor * moshi_multinomial(
-        ScratchContext &ctx,
+        GraphContext &ctx,
         ggml_tensor * input,
         int num_samples
     ) {
@@ -22,7 +22,7 @@ ggml_tensor * moshi_multinomial(
     return output;
 }
 
-ggml_tensor * moshi_sample_top_k( ScratchContext &ctx, ggml_tensor * probs, int k) {
+ggml_tensor * moshi_sample_top_k( GraphContext &ctx, ggml_tensor * probs, int k) {
     /* Sample next token from top K values along the last dimension of the input probs tensor.
 
     Args:
@@ -44,7 +44,7 @@ ggml_tensor * moshi_sample_top_k( ScratchContext &ctx, ggml_tensor * probs, int 
 }
 
 ggml_tensor * moshi_sample_token(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         ggml_tensor * logits,
         bool use_sampling = false,
         float temp = 1.0,

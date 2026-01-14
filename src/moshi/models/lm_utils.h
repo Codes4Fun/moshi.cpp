@@ -39,10 +39,70 @@ void get_weights( WeightLoader * loader, std::string path,
     get_weights( loader, path + "out2.", m->out2 );
 }
 
+struct embedding_demux_t {
+    ggml_tensor * left;
+    ggml_tensor * right;
+    ggml_tensor * right_scale;
+};
+
+ggml_tensor * moshi_scaled_embedding_demux_build(
+        GraphContext & ctx,
+        moshi_scaled_embedding_demux_t * m,
+        embedding_demux_t * emb ) {
+    auto left = ctx.new_tensor( GGML_TYPE_I32, GGML_NE( 1 ) );
+    auto right = ctx.new_tensor( GGML_TYPE_I32, GGML_NE( 1 ) );
+    auto right_scale = ctx.new_tensor( GGML_TYPE_F32, GGML_NE( 1 ) );
+    emb->left = left;
+    emb->right = right;
+    emb->right_scale = right_scale;
+    left = ggml_get_rows( ctx, m->weight, left );
+    right = ggml_get_rows( ctx, m->weight, right );
+    auto right_y = torch_nn_linear( ctx, m->out2, right );
+    auto left_y = torch_nn_linear( ctx, m->out1, left );
+    right_y = ggml_mul( ctx, right_y, right_scale );
+    auto y = ggml_add( ctx, left_y, right_y );
+    return y;
+}
+
+void moshi_scaled_embedding_demux_step(
+        GraphContext & ctx,
+        moshi_scaled_embedding_demux_t * m,
+        embedding_demux_t * emb,
+        int input ) {
+    if ( input < 0 )
+        input = 0;
+    auto left_idx = input % m->num_embeddings;
+
+    auto right_idx = input / m->num_embeddings;
+    right_idx = right_idx - 1;
+    bool right_zero = right_idx < 0;
+    if ( right_idx < 0 )
+        right_idx = 0;
+
+    ctx.tensor_set( emb->left, left_idx );
+    ctx.tensor_set( emb->right, right_idx );
+    ctx.tensor_set( emb->right_scale, right_zero? 0.f : 1.f );
+}
+
+ggml_tensor * moshi_scaled_embedding_demux(
+        ScratchContext & ctx,
+        moshi_scaled_embedding_demux_t * m,
+        ggml_tensor * left, ggml_tensor * right, ggml_tensor * right_scale ) {
+
+    left = ggml_get_rows( ctx, m->weight, left );
+    right = ggml_get_rows( ctx, m->weight, right );
+    auto right_y = torch_nn_linear( ctx, m->out2, right );
+    auto left_y = torch_nn_linear( ctx, m->out1, left );
+    right_y = ggml_mul( ctx, right_y, right_scale );
+    auto y = ggml_add( ctx, left_y, right_y );
+    return y;
+}
+
 ggml_tensor * moshi_scaled_embedding_demux(
         ScratchContext & ctx,
         moshi_scaled_embedding_demux_t * m,
         int input ) {
+
     if ( input < 0 )
         input = 0;
     auto left_idx = input % m->num_embeddings;
@@ -50,7 +110,6 @@ ggml_tensor * moshi_scaled_embedding_demux(
     right_idx = right_idx - 1;
 
     auto left = ctx.constant( left_idx );
-    left = ggml_get_rows( ctx, m->weight, left );
 
     bool right_zero = right_idx < 0;
 
@@ -58,18 +117,10 @@ ggml_tensor * moshi_scaled_embedding_demux(
         right_idx = 0;
 
     auto right = ctx.constant( right_idx );
-    right = ggml_get_rows( ctx, m->weight, right );
 
-    auto right_y = torch_nn_linear( ctx, m->out2, right );
+    auto right_scale = ctx.constant( right_zero? 0.f : 1.f );
 
-    auto left_y = torch_nn_linear( ctx, m->out1, left );
-
-    if ( right_zero )
-        right_y = ggml_scale( ctx, right_y, 0 );
-
-    auto y = ggml_add( ctx, left_y, right_y );
-
-    return y;
+    return moshi_scaled_embedding_demux( ctx, m, left, right, right_scale );
 }
 
 struct moshi_scaled_embedding_t {
@@ -98,6 +149,49 @@ void get_weights( WeightLoader * loader, std::string path,
         get_weights( loader, path + "low_rank.", m->low_rank );
 }
 
+struct embedding_t {
+    ggml_tensor * input;
+    ggml_tensor * scale;
+};
+
+ggml_tensor * moshi_scaled_embedding_build(
+        GraphContext & ctx,
+        moshi_scaled_embedding_t * m,
+        embedding_t * emb ) {
+    auto input = ctx.new_tensor( GGML_TYPE_I32, GGML_NE( 1 ) );
+    auto scale = ctx.new_tensor( GGML_TYPE_F32, GGML_NE( 1 ) );
+    emb->input = input;
+    emb->scale = scale;
+    auto y = ggml_get_rows( ctx, m->weight, input );
+    y = ggml_mul(ctx, y, scale );
+    if ( m->low_rank )
+        y = torch_nn_linear( ctx, m->low_rank, y );
+    return y;
+}
+
+void moshi_scaled_embedding_step(
+        GraphContext & ctx,
+        moshi_scaled_embedding_t * m,
+        embedding_t * emb,
+        int input ) {
+    bool is_zero = input == -1;
+    if ( input < 0 )
+        input = 0;
+    ctx.tensor_set( emb->input, input );
+    ctx.tensor_set( emb->scale, is_zero? 0.f : 1.f );
+}
+
+ggml_tensor * moshi_scaled_embedding(
+        ScratchContext & ctx,
+        moshi_scaled_embedding_t * m,
+        ggml_tensor * input, ggml_tensor * scale ) {
+    auto y = ggml_get_rows( ctx, m->weight, input );
+    y = ggml_mul(ctx, y, scale );
+    if ( m->low_rank )
+        y = torch_nn_linear( ctx, m->low_rank, y );
+    return y;
+}
+
 ggml_tensor * moshi_scaled_embedding(
         ScratchContext & ctx,
         moshi_scaled_embedding_t * m,
@@ -105,12 +199,9 @@ ggml_tensor * moshi_scaled_embedding(
     bool is_zero = input == -1;
     if ( input < 0 )
         input = 0;
-    auto y = ggml_get_rows( ctx, m->weight, ctx.constant( input ) );
-    if ( is_zero )
-        y = ggml_scale(ctx, y, 0);
-    if ( m->low_rank )
-        y = torch_nn_linear( ctx, m->low_rank, y );
-    return y;
+    return moshi_scaled_embedding( ctx, m,
+        ctx.constant( input), 
+        ctx.constant( is_zero? 0.f : 1.f ) );
 }
 
 // this should only be used after the first moshi_scaled_embedding

@@ -1099,7 +1099,8 @@ struct moshi_streaming_transformer_t {
 };
 
 struct moshi_streaming_transformer_graph_t {
-    own_ptr<GraphContext> ctx;
+    // TODO: decide if we keep this or free it
+    GraphContext * ctx = NULL;
     ggml_tensor * attn_bias;
     ggml_tensor * offset;
     ggml_tensor * indices;
@@ -1219,6 +1220,8 @@ ggml_tensor * moshi_streaming_transformer_graph_build(
         moshi_streaming_transformer_state_t * states,
         ggml_tensor * x ) {
 
+    states->graph.ctx = &gctx;
+
     auto rope_max_period = m->rope_max_period;
     int64_t D = m->dim_per_head;
     int capacity = m->capacity;
@@ -1227,14 +1230,14 @@ ggml_tensor * moshi_streaming_transformer_graph_build(
 
     // attn_bias
     create_bias_pattern( gctx.backend, m->pattern, capacity, (int) T, 0, -INFINITY );
-    states->graph.attn_bias = ggml_new_tensor_2d( gctx,
-        GGML_TYPE_F32, capacity, T );
+    states->graph.attn_bias = gctx.new_tensor(
+        GGML_TYPE_F32, GGML_NE( capacity, T ) );
 
     // offset for timestep_embedding
     timestep_embedding_t tsemb = { NULL, NULL };
     if ( rope_max_period ) {
-        states->graph.offset = ggml_new_tensor_1d( gctx,
-            GGML_TYPE_F32, 1 );
+        states->graph.offset = gctx.new_tensor(
+            GGML_TYPE_F32, GGML_NE( 1 ) );
         moshi_get_timestep_embedding( gctx, (int)T, (int)D,
             states->graph.offset, rope_max_period, tsemb );
     } else {
@@ -1242,8 +1245,8 @@ ggml_tensor * moshi_streaming_transformer_graph_build(
     }
 
     // indices
-    states->graph.indices = ggml_new_tensor_1d( gctx,
-        GGML_TYPE_I32, T );
+    states->graph.indices = gctx.new_tensor(
+        GGML_TYPE_I32, GGML_NE( T ) );
 
     return moshi_streaming_transformer( gctx,
         m, states,
@@ -1275,16 +1278,14 @@ void moshi_streaming_transformer_graph_step(
 
     // update offset
     if ( states->graph.offset ) {
-        float foffset = (float)offset;
-        ggml_backend_tensor_set( states->graph.offset, &foffset, 0, 4 );
+        states->graph.ctx->tensor_set( states->graph.offset, (float)offset );
     }
 
     // update indices
-    std::vector<int> offsets( ggml_nelements( states->graph.indices ) );
+    std::vector<int32_t> offsets( ggml_nelements( states->graph.indices ) );
     for (int i = 0; i < offsets.size(); i++)
         offsets[i] = (offset + i) % capacity;
-    ggml_backend_tensor_set( states->graph.indices, offsets.data(), 0,
-        ggml_nbytes( states->graph.indices ) );
+    states->graph.ctx->tensor_set( states->graph.indices, offsets );
 }
 
 ggml_tensor * moshi_streaming_transformer_graph(
