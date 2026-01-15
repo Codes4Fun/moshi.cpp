@@ -395,7 +395,7 @@ void init( ScratchContext * scratch_ctx, moshi_smha_state_t * state,
     }
 }
 
-ggml_tensor * get_attn_bias( ScratchContext & ctx, bias_pattern_t * pattern,
+ggml_tensor * get_attn_bias( GraphContext & ctx, bias_pattern_t * pattern,
         int capacity, int64_t T, int64_t offset ) {
     if ( ! pattern->tensor ) {
         create_bias_pattern( ctx.backend, *pattern, capacity, (int) T, 0, -INFINITY );
@@ -1180,7 +1180,7 @@ ggml_tensor * moshi_streaming_transformer(
 }
 
 ggml_tensor * moshi_streaming_transformer(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_streaming_transformer_t * m,
         moshi_streaming_transformer_state_t * states,
         ggml_tensor * x ) {

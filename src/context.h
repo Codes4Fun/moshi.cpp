@@ -234,6 +234,13 @@ class GraphContext {
         std::vector<uint8_t> data;
     };
     std::vector<constant_t> constants;
+    // exponential (random)
+    struct exponential_t {
+        ggml_tensor * tensor;
+        float lambd;
+        std::vector<uint8_t> data;
+    };
+    std::vector<exponential_t> exponentials;
     // input convert
     struct input_convert_t {
         ggml_tensor * dst;
@@ -325,6 +332,40 @@ class GraphContext {
         return NULL;
     }
 
+    ggml_tensor * input( NE ne, std::vector<int> & i32 ) {
+        auto tensor = ggml_new_tensor( ctx, GGML_TYPE_I32, 4, ne );
+        size_t nelements = ggml_nelements( tensor );
+        assert( nelements == i32.size() );
+        int * data;
+        if (backend) {
+            constants.push_back({tensor});
+            auto & constant = constants.back();
+            constant.data.resize( ggml_nbytes( tensor ) );
+            data = (int*)constant.data.data();
+        } else {
+            data = (int*)tensor->data;
+        }
+        memcpy( data, i32.data(), ggml_nbytes( tensor ) );
+        return tensor;
+    }
+
+    ggml_tensor * input( NE ne, std::vector<float> & f32 ) {
+        auto tensor = ggml_new_tensor( ctx, GGML_TYPE_F32, 4, ne );
+        size_t nelements = ggml_nelements( tensor );
+        assert( nelements == f32.size() );
+        float * data;
+        if (backend) {
+            constants.push_back({tensor});
+            auto & constant = constants.back();
+            constant.data.resize( ggml_nbytes( tensor ) );
+            data = (float*)constant.data.data();
+        } else {
+            data = (float*)tensor->data;
+        }
+        memcpy( data, f32.data(), ggml_nbytes( tensor ) );
+        return tensor;
+    }
+
     ggml_tensor * fill( int count, float value ) {
         if (backend) {
             auto tensor = ggml_new_tensor_1d( ctx, GGML_TYPE_F32, count );
@@ -398,24 +439,27 @@ class GraphContext {
     // probability density function
     ggml_tensor * exponential( NE ne, float lambd = 1.f ) {
         auto tensor = ggml_new_tensor( ctx, GGML_TYPE_F32, 4, ne );
-        int64_t n = ggml_nelements( tensor );
-        float * data;
         if (backend) {
-            constants.push_back({tensor});
-            auto & constant = constants.back();
-            constant.data.resize( ggml_nbytes( tensor ) );
-            data = (float*)constant.data.data();
-        } else {
-            data = (float*)tensor->data;
+            exponentials.push_back({tensor, lambd});
+            auto & exp = exponentials.back();
+            exp.data.resize( ggml_nbytes( tensor ) );
         }
-#ifdef DISABLE_RAND
-        for (int64_t i = 0; i < n; i++)
-            data[i] = -logf(0.5) / lambd;
-#else
-        for (int64_t i = 0; i < n; i++)
-            data[i] = -logf(rand() / (float)RAND_MAX) / lambd;
-#endif
         return tensor;
+    }
+
+    void _exponential_compute() {
+        for ( auto exp : exponentials ) {
+            auto data = (float*)exp.data.data();
+            int64_t n = ggml_nelements( exp.tensor );
+#ifdef DISABLE_RAND
+            for (int64_t i = 0; i < n; i++)
+                data[i] = -logf(0.5) / exp.lambd;
+#else
+            for (int64_t i = 0; i < n; i++)
+                data[i] = -logf(rand() / (float)RAND_MAX) / exp.lambd;
+#endif
+            ggml_backend_tensor_set( exp.tensor, data, 0, ggml_nbytes( exp.tensor ) );
+        }
     }
 
     std::string name;
@@ -452,6 +496,7 @@ class GraphContext {
     }
 
     void compute() {
+        _exponential_compute();
         assert( backend );
         if (name.size()) {CAPTURE(name, gf);}
         ggml_backend_graph_compute( backend, gf );
@@ -499,40 +544,6 @@ class ScratchContext : public GraphContext {
         memcpy( constant.data.data(), value.data(), ggml_nbytes( tensor ) );
     }
 
-    ggml_tensor * input( NE ne, std::vector<int> & i32 ) {
-        auto tensor = ggml_new_tensor( ctx, GGML_TYPE_I32, 4, ne );
-        size_t nelements = ggml_nelements( tensor );
-        assert( nelements == i32.size() );
-        int * data;
-        if (backend) {
-            constants.push_back({tensor});
-            auto & constant = constants.back();
-            constant.data.resize( ggml_nbytes( tensor ) );
-            data = (int*)constant.data.data();
-        } else {
-            data = (int*)tensor->data;
-        }
-        memcpy( data, i32.data(), ggml_nbytes( tensor ) );
-        return tensor;
-    }
-
-    ggml_tensor * input( NE ne, std::vector<float> & f32 ) {
-        auto tensor = ggml_new_tensor( ctx, GGML_TYPE_F32, 4, ne );
-        size_t nelements = ggml_nelements( tensor );
-        assert( nelements == f32.size() );
-        float * data;
-        if (backend) {
-            constants.push_back({tensor});
-            auto & constant = constants.back();
-            constant.data.resize( ggml_nbytes( tensor ) );
-            data = (float*)constant.data.data();
-        } else {
-            data = (float*)tensor->data;
-        }
-        memcpy( data, f32.data(), ggml_nbytes( tensor ) );
-        return tensor;
-    }
-
     void build_forward_expand( ggml_tensor * tensor ) {
         assert( tensor->op == GGML_OP_CPY ); // scratch context will not store data
         ggml_build_forward_expand( get_graph(), tensor );
@@ -575,6 +586,7 @@ class ScratchContext : public GraphContext {
         copies.clear();
         //tensor_copies.clear();
         input_converts.clear();
+        exponentials.clear();
         constants.clear();
         constants32.clear();
         loaders.clear();
@@ -588,9 +600,12 @@ class ScratchContext : public GraphContext {
     void compute() {
         assert( backend );
         alloc();
+        _exponential_compute();
+
         // compute
         if (name.size()) {CAPTURE(name, gf);}
         ggml_backend_graph_compute( backend, gf );
+
         // debug
         for (auto sum : debug_sums) {
             float fsum;

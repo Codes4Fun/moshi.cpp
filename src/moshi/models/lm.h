@@ -399,14 +399,24 @@ struct lmmodel_embed_t {
     std::vector<embedding_t> audio;
 };
 
+struct lmmodel_depformer_embed_t {
+    embedding_demux_t text_demux;
+    embedding_t text;
+};
+
 struct moshi_lmmodel_states_t {
     own_ptr<moshi_streaming_transformer_state_t> transformer;
     own_ptr<moshi_streaming_transformer_state_t> depformer;
+
     GraphContext * gctx = NULL;
-    ggml_tensor * transformer_out;
-    ggml_tensor * sampler_out;
     lmmodel_embed_t embed;
     int  transformer_T;
+    ggml_tensor * transformer_out;
+    ggml_tensor * sampler_out;
+
+    GraphContext * depformer_gctx = NULL;
+    lmmodel_depformer_embed_t depformer_embed;
+    ggml_tensor * depformer_tokens;
 };
 
 moshi_lmmodel_states_t * moshi_lmmodel_states( StateContext * state_ctx,
@@ -433,7 +443,7 @@ void init( ScratchContext * ctx, moshi_lmmodel_states_t * state,
 }
 
 ggml_tensor * moshi_lmmodel_forward_depformer_transform(
-        ScratchContext & ctx,
+        GraphContext & ctx,
         moshi_lmmodel_t * lm,
         moshi_lmmodel_states_t * states,
         int depformer_cb_index,
@@ -464,10 +474,8 @@ ggml_tensor * moshi_lmmodel_forward_depformer_transform(
 }
 
 
-//#define ENABLE_SINGLE_GRAPH
-
 void moshi_lmmodel_depformer_step(
-        ScratchContext & ctx,
+        ScratchContext & scratch,
         moshi_lmmodel_t * lm,
         moshi_lmmodel_states_t * state,
         int text_token,
@@ -476,56 +484,71 @@ void moshi_lmmodel_depformer_step(
         int top_k,
         std::vector<int> & depformer_tokens
     ) {
-    depformer_tokens.resize( lm->dep_q );
 
-    init( &ctx, state->depformer, lm->depformer, NULL );
+    if ( ! state->depformer_gctx )
+    {
+        state->depformer_gctx = new GraphContext( 256, scratch.backend );
+        GraphContext &ctx = *state->depformer_gctx;
+        
+        ggml_tensor * last_token_input;
+        if ( lm->demux_second_stream ) {
+            last_token_input = moshi_scaled_embedding_demux_build( ctx,
+                lm->depformer_text_emb_demux, &state->depformer_embed.text_demux );
+        } else {
+            last_token_input = moshi_scaled_embedding_build( ctx,
+                lm->depformer_text_emb, &state->depformer_embed.text );
+        }
 
-    auto last_token_input = lm->demux_second_stream?
-        moshi_scaled_embedding_demux( ctx, lm->depformer_text_emb_demux, text_token ) :
-        moshi_scaled_embedding( ctx, lm->depformer_text_emb, text_token );
+        ggml_tensor * tokens = ctx.new_tensor( GGML_TYPE_I32, GGML_NE( lm->dep_q ) );
 
-    auto logits = moshi_lmmodel_forward_depformer_transform( ctx, lm, state,
-        0, last_token_input, state->transformer_out );
+        auto logits = moshi_lmmodel_forward_depformer_transform( ctx, lm, state,
+            0, last_token_input, state->transformer_out );
 
-    ON_NTH( 8, ctx.set_name( "depformer_32" ) );
-#ifdef ENABLE_SINGLE_GRAPH
-    auto next_token = moshi_sample_token( ctx, logits, use_sampling, temp, top_k );
-    ctx.build_forward_expand( next_token, &depformer_tokens[0] );
-#else
-    //ctx.compute(); this will be done by sampler
-    auto next_token = moshi_sample_token_int( ctx, logits, use_sampling, temp, top_k );
-    depformer_tokens[0] = next_token;
-#endif
+        auto next_token = moshi_sample_token( ctx, logits, use_sampling, temp, top_k );
+        auto view = ggml_view_1d( ctx, tokens, 1, 0 );
+        ctx.build_forward_expand( ggml_cpy( ctx, next_token, view ) );
 
-    for (int cb_index = 1; cb_index < lm->dep_q; cb_index++) {
-        auto index = cb_index - 1;
+        for (int cb_index = 1; cb_index < lm->dep_q; cb_index++) {
+            auto index = cb_index - 1;
 
-#ifdef ENABLE_SINGLE_GRAPH
-        last_token_input = moshi_scaled_embedding_chained( ctx,
-            lm->depformer_emb[index], next_token );
-#else
-        assert( next_token >= 0 ); // hypothetically sampling should pass this
-        last_token_input = moshi_scaled_embedding( ctx,
-            lm->depformer_emb[index], next_token );
-#endif
+            last_token_input = moshi_scaled_embedding_chained( ctx,
+                lm->depformer_emb[index], next_token );
 
-        logits = moshi_lmmodel_forward_depformer_transform(
-            ctx, lm, state, cb_index,
-            last_token_input,
-            state->transformer_out );
+            logits = moshi_lmmodel_forward_depformer_transform(
+                ctx, lm, state, cb_index,
+                last_token_input,
+                state->transformer_out );
 
-#ifdef ENABLE_SINGLE_GRAPH
-        next_token = moshi_sample_token( ctx, logits, use_sampling, temp, top_k );
-        ctx.build_forward_expand( next_token, &depformer_tokens[cb_index] );
-#else
-        //ctx.compute(); this will be done by the sampler
-        next_token = moshi_sample_token_int( ctx, logits, use_sampling, temp, top_k );
-        depformer_tokens[cb_index] = next_token;
-#endif
+            next_token = moshi_sample_token( ctx, logits, use_sampling, temp, top_k );
+            view = ggml_view_1d( ctx, view, 1, 4 );
+            ctx.build_forward_expand( ggml_cpy( ctx, next_token, view ) );
+        }
+        state->depformer_tokens = ggml_view_1d( ctx, view, tokens->ne[0], -(lm->dep_q - 1) * 4 );
+        ctx.build_forward_expand( state->depformer_tokens );
+
+        ctx.alloc();
     }
-#ifdef ENABLE_SINGLE_GRAPH
+    GraphContext &ctx = *state->depformer_gctx;
+
+    if ( lm->demux_second_stream ) {
+        moshi_scaled_embedding_demux_step( ctx,
+            lm->depformer_text_emb_demux,
+            &state->depformer_embed.text_demux,
+            text_token );
+    } else {
+        moshi_scaled_embedding_step( ctx,
+            lm->depformer_text_emb,
+            &state->depformer_embed.text,
+            text_token );
+    }
+
     ctx.compute();
-#endif
+
+    depformer_tokens.resize( ggml_nelements( state->depformer_tokens ) );
+    ggml_backend_tensor_get(
+        state->depformer_tokens,
+        depformer_tokens.data(),
+        0, ggml_nbytes( state->depformer_tokens ) );
 }
 
 ggml_tensor * moshi_lmmodel_text_token_embed_build(
