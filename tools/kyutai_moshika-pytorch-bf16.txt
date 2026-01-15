@@ -1,14 +1,26 @@
 https://huggingface.co/kyutai/moshika-pytorch-bf16/resolve/a49141e28b3d9c947cf9aa5314431e1b11cbd2f5/README.md
  out=kyutai/moshika-pytorch-bf16/README.md
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
  checksum=sha-1=e61f682d237159c60ecd200f2e3111832c759f2f
 https://huggingface.co/kyutai/moshika-pytorch-bf16/resolve/a49141e28b3d9c947cf9aa5314431e1b11cbd2f5/model.safetensors
  out=kyutai/moshika-pytorch-bf16/model.safetensors
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
  checksum=sha-256=e0a5a1c79010680eb916adb940ee8567978c78902c5a6b743c79202e75858712
 https://huggingface.co/kyutai/moshika-pytorch-bf16/resolve/a49141e28b3d9c947cf9aa5314431e1b11cbd2f5/tokenizer-e351c8d8-checkpoint125.safetensors
  out=kyutai/moshika-pytorch-bf16/tokenizer-e351c8d8-checkpoint125.safetensors
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
  checksum=sha-256=09b782f0629851a271227fb9d36db65c041790365f11bbe5d3d59369cf863f50
 https://huggingface.co/kyutai/moshika-pytorch-bf16/resolve/a49141e28b3d9c947cf9aa5314431e1b11cbd2f5/tokenizer_spm_32k_3.model
  out=kyutai/moshika-pytorch-bf16/tokenizer_spm_32k_3.model
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
  checksum=sha-256=78d4336533ddc26f9acf7250d7fb83492152196c6ea4212c841df76933f18d2d
 
 

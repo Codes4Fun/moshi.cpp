@@ -1,15 +1,30 @@
 https://huggingface.co/kyutai/tts-0.75b-en-public/resolve/816a8498066d454249a08d10ed614bda5276be0e/README.md
  out=kyutai/tts-0.75b-en-public/README.md
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
  checksum=sha-1=0e9c6522b2a0a43499c9abd9ce614d82ded8d214
 https://huggingface.co/kyutai/tts-0.75b-en-public/resolve/816a8498066d454249a08d10ed614bda5276be0e/config.json
  out=kyutai/tts-0.75b-en-public/config.json
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
  checksum=sha-1=17f6969ed01dac8104f18a2cdb77f67f394d29c3
 https://huggingface.co/kyutai/tts-0.75b-en-public/resolve/816a8498066d454249a08d10ed614bda5276be0e/dsm_tts_d6ef30c7@1000.safetensors
  out=kyutai/tts-0.75b-en-public/dsm_tts_d6ef30c7@1000.safetensors
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
  checksum=sha-256=ee4342f0fd9bd244a1d540993beadaf02dcb8116b376fa91b28f4b2568f3f571
 https://huggingface.co/kyutai/tts-0.75b-en-public/resolve/816a8498066d454249a08d10ed614bda5276be0e/tokenizer-e351c8d8-checkpoint125.safetensors
  out=kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
  checksum=sha-256=09b782f0629851a271227fb9d36db65c041790365f11bbe5d3d59369cf863f50
 https://huggingface.co/kyutai/tts-0.75b-en-public/resolve/816a8498066d454249a08d10ed614bda5276be0e/tokenizer_spm_8k_en_fr_audio.model
  out=kyutai/tts-0.75b-en-public/tokenizer_spm_8k_en_fr_audio.model
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
  checksum=sha-256=cd87dd5d17169151782ac700280ec057e5d658a9afbe238a048ea5ff318cce69
