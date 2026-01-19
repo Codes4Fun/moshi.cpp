@@ -38,6 +38,8 @@ options:
   -t N,     --temperature N    consistency vs creativity, default 0.8
   -b        --bench            benchmark mode that disables sdl io and ends
                                after a few seconds.
+  -i FNAME                     talk to moshi from an audio file.
+            --delay            delay the audio file in frames (12.5 fps)
 )", program);
     exit(1);
 }
@@ -73,6 +75,9 @@ int main(int argc, char *argv[]) {
     float depth_temperature = 0.8f;
     float text_temperature = 0.7f;
     bool bench = false;
+
+    const char * input = NULL;
+    int input_delay = 0;
 
     //////////////////////
     // MARK: Parse Args
@@ -147,6 +152,22 @@ int main(int argc, char *argv[]) {
             depth_temperature = text_temperature;
             continue;
         }
+        if (arg == "-i") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires filepath to audio file\n", argv[i] );
+                exit(1);
+            }
+            input = argv[++i];
+            continue;
+        }
+        if (arg == "--delay") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            input_delay = std::stoi(argv[++i]);
+            continue;
+        }
         if (arg == "-b" || arg == "--bench")  {
             bench = true;
             continue;
@@ -167,6 +188,11 @@ int main(int argc, char *argv[]) {
     ensure_path( program_path );
     ensure_path( model_root );
     ensure_path( model_path );
+
+    if ( input && ! file_exists( input ) ) {
+        fprintf( stderr, "error: input file does not exist: %s\n", input );
+        exit(1);
+    }
 
     // find model path
     bool found_file, found_dir;
@@ -395,6 +421,17 @@ int main(int argc, char *argv[]) {
     auto load_end = ggml_time_ms();
     printf("done loading. %f\n", (load_end - load_start) / 1000.f);
 
+    Decoder input_decoder;
+    Resampler resampler;
+    if ( input ) {
+        input_decoder.init( input );
+        AVChannelLayout mono;
+        av_channel_layout_default( &mono, 1 );
+        resampler.set_input( input_decoder.codec_ctx );
+        resampler.set_output( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
+        resampler.init();
+    }
+
     /////////////////////////
     // MARK: SDL
     /////////////////////////
@@ -447,10 +484,6 @@ int main(int argc, char *argv[]) {
     // model
     moshi_lm_start( moshi, gen, depth_temperature, text_temperature );
 
-    // consumes about   18400 MiB   17.969 GiB  18 GiB
-    //printf("made it.\n");
-    //getchar();
-
     std::vector<int16_t> tokens(num_codebooks);
     int text_token;
 
@@ -472,9 +505,49 @@ int main(int argc, char *argv[]) {
         SDL_PauseAudioDevice(dev, 0);
     }
 
+    AVFrame * dec_frame = input? dec_frame = input_decoder.frame() : NULL;
+    AVFrame * res_frame = NULL;
+
     uint64_t lm_start = ggml_time_us();
     while ( ! shutdown ) {
-        if ( bench ) {
+        if ( input ) {
+            if ( input_delay > 0 ) {
+                input_delay--;
+                memset(blank.data(), 0, blank.size() * sizeof(blank[0]));
+                lm_start = ggml_time_us();
+                mimi_encode_send( encoder, blank.data() );
+                if ( input_delay == 0 ) {
+                    printf(" | ");
+                    fflush( stdout );
+                }
+            } else {
+                if ( res_frame ) {
+                    // drain resampler
+                    res_frame = resampler.frame();
+                }
+                while ( ! res_frame ) { // fill resampler if needed
+                    dec_frame = input_decoder.frame();
+                    if ( ! dec_frame ) { // we are done
+                        break;
+                    } else {
+                        res_frame = resampler.frame( dec_frame );
+                    }
+                }
+                if ( res_frame ) {
+                    lm_start = ggml_time_us();
+                    mimi_encode_send( encoder, (float*)res_frame->data[0] );
+                    res_frame = resampler.frame();
+                } else {
+                    // no more decoder frames
+                    input = NULL;
+                    memset(blank.data(), 0, blank.size() * sizeof(blank[0]));
+                    lm_start = ggml_time_us();
+                    mimi_encode_send( encoder, blank.data() );
+                    printf(" | ");
+                    fflush( stdout );
+                }
+            }
+        } else if ( bench ) {
             memset(blank.data(), 0, blank.size() * sizeof(blank[0]));
             lm_start = ggml_time_us();
             mimi_encode_send( encoder, blank.data() );
