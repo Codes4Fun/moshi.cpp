@@ -235,10 +235,10 @@ class GraphContext {
     };
     std::vector<constant_t> constants;
     // exponential (random)
+    std::vector<uint8_t> scratch_data;
     struct exponential_t {
         ggml_tensor * tensor;
         float lambd;
-        std::vector<uint8_t> data;
     };
     std::vector<exponential_t> exponentials;
     // input convert
@@ -441,15 +441,16 @@ class GraphContext {
         auto tensor = ggml_new_tensor( ctx, GGML_TYPE_F32, 4, ne );
         if (backend) {
             exponentials.push_back({tensor, lambd});
-            auto & exp = exponentials.back();
-            exp.data.resize( ggml_nbytes( tensor ) );
         }
         return tensor;
     }
 
     void _exponential_compute() {
-        for ( auto exp : exponentials ) {
-            auto data = (float*)exp.data.data();
+        for ( auto & exp : exponentials ) {
+            auto nbytes = ggml_nbytes( exp.tensor );
+            if ( scratch_data.size() < nbytes )
+                scratch_data.resize( nbytes );
+            auto data = (float*)scratch_data.data();
             int64_t n = ggml_nelements( exp.tensor );
 #ifdef DISABLE_RAND
             for (int64_t i = 0; i < n; i++)
@@ -458,7 +459,7 @@ class GraphContext {
             for (int64_t i = 0; i < n; i++)
                 data[i] = -logf(rand() / (float)RAND_MAX) / exp.lambd;
 #endif
-            ggml_backend_tensor_set( exp.tensor, data, 0, ggml_nbytes( exp.tensor ) );
+            ggml_backend_tensor_set( exp.tensor, data, 0, nbytes );
         }
     }
 
@@ -475,6 +476,29 @@ class GraphContext {
 
     void build_forward_expand( ggml_tensor * tensor ) {
         ggml_build_forward_expand( get_graph(), tensor );
+    }
+
+    bool debug_enable = false;
+    struct debug_sum_t {
+        const char * label;
+        ggml_tensor * src;
+    };
+    std::vector<debug_sum_t> debug_sums;
+    void debug( const char * label, ggml_tensor * src ) {
+        if (!debug_enable)
+            return;
+        if (src->type != GGML_TYPE_F32)
+            src = ggml_cast( ctx, src, GGML_TYPE_F32 );
+        auto sum = ggml_sum( ctx, src );
+        ggml_build_forward_expand( get_graph(), sum );
+        debug_sums.push_back({label, sum});
+    }
+    void _debug_compute() {
+        for (auto sum : debug_sums) {
+            float fsum;
+            ggml_backend_tensor_get( sum.src, &fsum, 0, 4 );
+            printf( "%s %f\n", sum.label, fsum );
+        }
     }
 
     void alloc() {
@@ -500,6 +524,7 @@ class GraphContext {
         assert( backend );
         if (name.size()) {CAPTURE(name, gf);}
         ggml_backend_graph_compute( backend, gf );
+        _debug_compute();
     }
 };
 
@@ -567,19 +592,6 @@ class ScratchContext : public GraphContext {
         copies.push_back({ tensor, dst });
     }
 
-    struct debug_sum_t {
-        const char * label;
-        ggml_tensor * src;
-    };
-    std::vector<debug_sum_t> debug_sums;
-    void debug( const char * label, ggml_tensor * src ) {
-        if (src->type != GGML_TYPE_F32)
-            src = ggml_cast( ctx, src, GGML_TYPE_F32 );
-        auto sum = ggml_sum( ctx, src );
-        ggml_build_forward_expand( get_graph(), sum );
-        debug_sums.push_back({label, sum});
-    }
-
     void clear() {
         debug_sums.clear();
         backend_copies.clear();
@@ -607,11 +619,8 @@ class ScratchContext : public GraphContext {
         ggml_backend_graph_compute( backend, gf );
 
         // debug
-        for (auto sum : debug_sums) {
-            float fsum;
-            ggml_backend_tensor_get( sum.src, &fsum, 0, 4 );
-            printf( "%s %f\n", sum.label, fsum );
-        }
+        _debug_compute();
+        debug_enable = false;
         // copy results
         for (auto copy : copies) {
             size_t nbytes = ggml_nbytes(copy.src);
