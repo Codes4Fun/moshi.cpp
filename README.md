@@ -19,13 +19,9 @@ There are multiple tools that demonstrate different components:
 
 There are aria2c download scripts to make it easier to download tested models.
 
-The tools support quantization of the safetensor models and caching of gguf files via commmand line, `-g` to cache a gguf which is several times faster to load than the safetensors but will consume more drive space. Use `-q q8_0` or `q q4_k` to quantize, the q4_k can take a while to convert, several minutes for some models, so it's best to use those with `-g` to save gguf versions, they also perform a bit faster. The largest models, moshika and moshiko, can run on 8gb of vram with q4_k, but they may not perform fast enough, though I was able to have a conversation with an rtx 2070 laptop running linux.
-
-What is left todo is more performance optimizations to support lower end hardware. Python moshi is over 5 times faster than moshi.cpp but uses cuda graphs. Without those cuda graphs moshi.cpp is over twice as fast, so there seems to be a lot of room to improve performance.
+The tools support quantization of the safetensor models and caching of gguf files via commmand line, `-g` to cache a gguf which is several times faster to load than the safetensors but will consume more drive space. Use `-q q8_0` or `-q q4_k` to quantize, the q4_k can take a while to convert, several minutes for some models, so it's best to use those with `-g` to save gguf versions, they also perform a bit faster. The largest models, moshika and moshiko, can run on 8gb of vram with q4_k, but they may not perform fast enough, though I was able to have a conversation with an rtx 2070 laptop running linux.
 
 ### Performance / Optimizations
-
-There still needs to be lots of optimization and refactoring. Right now, for example, it rebuilds graphs each frame.
 
 I did create an optimization that does not exist in moshi, and that is, instead of generating an attention bias mask each frame, it generates a reusable pattern once at initialization, and reuses it like you would a lookup table. Not only does this reduce the work to just changing an offset in the pattern tensor, but it makes easier an implementation that originally involved boolean logic operations and dealing with infinities.
 
@@ -123,7 +119,7 @@ For windows you can unzip the aria2c.exe into the moshi directory.
 
 Aftwards you can run the following which will download and verify the minimal files to run moshi-tts and moshi-stt. This requires about 6 GB of space:
 ```
-aria2c --auto-file-renaming=false --check-integrity=true --allow-overwrite=false --disable-ipv6 -i kyutai_defaults.txt
+aria2c --disable-ipv6 -i kyutai_defaults.txt
 ```
 
 If you want your models to be located in another directory, ideally set it's path in an environment variable named `MODEL_CACHE` and then add to the command line `-d`, so for example in linux use `-d $MODEL_CACHE` or in windows `-d %MODEL_CACHE%`.
@@ -219,7 +215,7 @@ These commands output frames per second. Although tts also outputs tokens per se
 
 Moshi operates at 12.5 frames per second, so anything below that would not work for real time applications.
 
-CUDA benchmarks (beta2 wip):
+CUDA benchmarks (beta2):
 | make   | name            | gb | driver | os    | tts fps | stt fps | sts q4_k |
 |--------|-----------------|----|--------|-------|---------|---------|----------|
 | NVIDIA | RTX 4060        |  8 | CUDA   | linux |   19.41 |   76.63 | 🟢 17.85 |
@@ -230,7 +226,7 @@ CUDA benchmarks (beta2 wip):
 | NVIDIA | RTX 3060        | 12 | CUDA   | win11 |   13.80 |   42.44 | 🟢 12.79 |
 | NVIDIA | GTX 1070        |  8 | CUDA   | win11 |    8.72 |   41.81 | 🔴  6.94 |
 
-Vulkan benchmarks (beta2 wip):
+Vulkan benchmarks (beta2):
 | make   | name              | gb | driver | os    | tts fps | stt fps | sts q4_k |
 |--------|-------------------|----|--------|-------|---------|---------|----------|
 |  Intel | ARC B850          | 12 | Vulkan | win11 |   31.43 |   63.88 | 🟢 22.03 |
