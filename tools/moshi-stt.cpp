@@ -35,7 +35,7 @@ option(s):
   -m PATH,  --model PATH       path to where model is, can be relative to the
                                MODEL_CACHE environment variable, or program
                                directory, or working directory. by default is
-                               'kyutai/stt-1b-en_fr-candle'
+                               'Codes4Fun/stt-1b-en_fr-GGUF'
   -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
   -g,       --gguf-caching     loads gguf if exists, saves gguf if it does not.
                                model is saved alongside the original
@@ -67,7 +67,8 @@ int main(int argc, char *argv[]) {
 
     const char * model_cache = getenv("MODEL_CACHE");
     std::string model_root = model_cache? model_cache : "";
-    std::string stt_path = "kyutai/stt-1b-en_fr-candle";
+    std::string stt_path = "Codes4Fun/stt-1b-en_fr-GGUF";
+    bool stt_path_set = false;
     const char * quant = NULL;
     bool gguf_caching = false;
 
@@ -121,6 +122,7 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             stt_path = argv[++i];
+            stt_path_set = true;
             continue;
         }
         if (arg == "-q" || arg == "--quantize") {
@@ -217,14 +219,28 @@ int main(int argc, char *argv[]) {
             fprintf( stderr, "error: failed to find config.json from path: \"%s\"\n", stt_path.c_str() );
             exit(1);
         }
-        std::vector<std::string> paths = { "kyutai/" + stt_path };
-        if ( model_root.size() ) {
-            paths.push_back( model_root + stt_path );
-            paths.push_back( model_root + "kyutai/" + stt_path );
-        }
-        if ( program_path.size() ) {
-            paths.push_back( program_path + stt_path );
-            paths.push_back( program_path + "kyutai/" + stt_path );
+        std::vector<std::string> paths;
+        if ( stt_path_set ) {
+            paths.push_back( "kyutai/" + stt_path );
+            if ( model_root.size() ) {
+                paths.push_back( model_root + stt_path );
+                paths.push_back( model_root + "kyutai/" + stt_path );
+            }
+            if ( program_path.size() ) {
+                paths.push_back( program_path + stt_path );
+                paths.push_back( program_path + "kyutai/" + stt_path );
+            }
+        } else {
+            // try default paths
+            paths.push_back( "kyutai/stt-1b-en_fr-candle/" );
+            if ( model_root.size() ) {
+                paths.push_back( model_root + stt_path );
+                paths.push_back( model_root + "kyutai/stt-1b-en_fr-candle/" );
+            }
+            if ( program_path.size() ) {
+                paths.push_back( program_path + stt_path );
+                paths.push_back( program_path + "kyutai/stt-1b-en_fr-candle/" );
+            }
         }
         bool found = false;
         for ( auto & path : paths ) {
@@ -240,6 +256,7 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
     }
+    printf( "found model path: %s\n", stt_path.c_str() );
 
     moshi_config_t stt_config;
     if ( moshi_get_config( &stt_config, stt_config_path.c_str() ) != 0 ) {

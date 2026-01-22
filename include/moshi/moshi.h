@@ -39,6 +39,7 @@ MOSHI_API mimi_codec_t * mimi_alloc( moshi_context_t * moshi, const char * filen
 MOSHI_API void unref( mimi_codec_t * codec );
 MOSHI_API float mimi_frame_rate( mimi_codec_t * codec );
 MOSHI_API int mimi_frame_size( mimi_codec_t * codec );
+MOSHI_API void mimi_save_gguf( mimi_codec_t * codec, const char * filepath );
 
 // MARK: Mimi Encode
 

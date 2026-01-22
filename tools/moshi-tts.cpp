@@ -30,7 +30,7 @@ option(s):
   -m PATH,  --model PATH       path to where model is, can be relative to the
                                MODEL_CACHE environment variable, or program
                                directory, or working directory. by default is
-                               'kyutai/tts-1.6b-en_fr'
+                               'Codes4Fun/tts-1.6b-en_fr-GGUF'
   -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
   -g,       --gguf-caching     loads gguf if exists, saves gguf if it does not.
                                model is saved alongside the original
@@ -103,7 +103,8 @@ int main(int argc, char *argv[]) {
 
     const char * model_cache = getenv("MODEL_CACHE");
     std::string model_root = model_cache? model_cache : "";
-    std::string tts_path = "kyutai/tts-1.6b-en_fr";
+    std::string tts_path = "Codes4Fun/tts-1.6b-en_fr-GGUF/";
+    bool tts_path_set = false;
     const char * quant = NULL;
     bool gguf_caching = false;
     std::string voice_filename;
@@ -162,6 +163,7 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             tts_path = argv[++i];
+            tts_path_set = true;
             continue;
         }
         if (arg == "-q" || arg == "--quantize") {
@@ -287,14 +289,28 @@ int main(int argc, char *argv[]) {
             fprintf( stderr, "error: failed to find config.json from path: \"%s\"\n", tts_path.c_str() );
             exit(1);
         }
-        std::vector<std::string> paths = { "kyutai/" + tts_path };
-        if ( model_root.size() ) {
-            paths.push_back( model_root + tts_path );
-            paths.push_back( model_root + "kyutai/" + tts_path );
-        }
-        if ( program_path.size() ) {
-            paths.push_back( program_path + tts_path );
-            paths.push_back( program_path + "kyutai/" + tts_path );
+        std::vector<std::string> paths;
+        if ( tts_path_set ) {
+            paths.push_back( "kyutai/" + tts_path );
+            if ( model_root.size() ) {
+                paths.push_back( model_root + tts_path );
+                paths.push_back( model_root + "kyutai/" + tts_path );
+            }
+            if ( program_path.size() ) {
+                paths.push_back( program_path + tts_path );
+                paths.push_back( program_path + "kyutai/" + tts_path );
+            }
+        } else {
+            // try default paths
+            paths.push_back( "kyutai/tts-1.6b-en_fr/" );
+            if ( model_root.size() ) {
+                paths.push_back( model_root + tts_path );
+                paths.push_back( model_root + "kyutai/tts-1.6b-en_fr/" );
+            }
+            if ( program_path.size() ) {
+                paths.push_back( program_path + tts_path );
+                paths.push_back( program_path + "kyutai/tts-1.6b-en_fr/" );
+            }
         }
         bool found = false;
         for ( auto & path : paths ) {
@@ -310,6 +326,7 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
     }
+    printf( "found model path: %s\n", tts_path.c_str() );
 
     if ( input_filename ) {
         if ( ! file_exists( input_filename ) ) {

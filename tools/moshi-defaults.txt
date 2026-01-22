@@ -1,0 +1,88 @@
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/README.md
+ out=Codes4Fun/moshi-common/README.md
+ checksum=sha-1=94642a243cfbb60bd87cdda3fc8b3a9fa679015f
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/mimi-e351c8d8-125.gguf
+ out=Codes4Fun/moshi-common/mimi-e351c8d8-125.gguf
+ checksum=sha-256=7e0c9ced83cbd035f70b82f1c5602673083fcccec006ea29f48d2e32c60ec697
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/tokenizer_spm_32k_3.model
+ out=Codes4Fun/moshi-common/tokenizer_spm_32k_3.model
+ checksum=sha-256=78d4336533ddc26f9acf7250d7fb83492152196c6ea4212c841df76933f18d2d
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/tokenizer_spm_8k_en_fr.model
+ out=Codes4Fun/moshi-common/tokenizer_spm_8k_en_fr.model
+ checksum=sha-256=cd87dd5d17169151782ac700280ec057e5d658a9afbe238a048ea5ff318cce69
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+
+https://huggingface.co/Codes4Fun/moshika-q4_k-GGUF/resolve/ef0b8d55ea51706e5285fded849218f81ff637dc/README.md
+ out=Codes4Fun/moshika-q4_k-GGUF/README.md
+ checksum=sha-1=ceba4bfcf298378dad4f15297f21c6f83b330b89
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/moshika-q4_k-GGUF/resolve/ef0b8d55ea51706e5285fded849218f81ff637dc/config.json
+ out=Codes4Fun/moshika-q4_k-GGUF/config.json
+ checksum=sha-1=550c1bac972a5c988796c3a2be68b4b822de639f
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/moshika-q4_k-GGUF/resolve/ef0b8d55ea51706e5285fded849218f81ff637dc/model-q4_k.gguf
+ out=Codes4Fun/moshika-q4_k-GGUF/model-q4_k.gguf
+ checksum=sha-256=db334ee3b86136fadc05bdce4ff9f956d7b819f74b7920e34dbcdd2334c95248
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+
+https://huggingface.co/Codes4Fun/stt-1b-en_fr-GGUF/resolve/f52b1bcb004c53254986764b3b60766059012ad5/README.md
+ out=Codes4Fun/stt-1b-en_fr-GGUF/README.md
+ checksum=sha-1=dc359392ed5da2f739e6607f78915ca877003207
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/stt-1b-en_fr-GGUF/resolve/f52b1bcb004c53254986764b3b60766059012ad5/config.json
+ out=Codes4Fun/stt-1b-en_fr-GGUF/config.json
+ checksum=sha-1=727cbbd1e81d85701cb3bb8287d52a654cd58ac1
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/stt-1b-en_fr-GGUF/resolve/f52b1bcb004c53254986764b3b60766059012ad5/model.gguf
+ out=Codes4Fun/stt-1b-en_fr-GGUF/model.gguf
+ checksum=sha-256=0f41ae65389fbb6cc6179a742e5332f586026d4f4c1a503336eafba3b992ba04
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+
+https://huggingface.co/Codes4Fun/tts-1.6b-en_fr-GGUF/resolve/af0002a5b17401f2c04365b3e2f34f6f71552b9e/README.md
+ out=Codes4Fun/tts-1.6b-en_fr-GGUF/README.md
+ checksum=sha-1=6241c39779f218af0e085786be2be264ea48b02a
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/tts-1.6b-en_fr-GGUF/resolve/af0002a5b17401f2c04365b3e2f34f6f71552b9e/config.json
+ out=Codes4Fun/tts-1.6b-en_fr-GGUF/config.json
+ checksum=sha-1=c77faa8902ba9c1ccb47868f7c6a274266322f3f
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/tts-1.6b-en_fr-GGUF/resolve/af0002a5b17401f2c04365b3e2f34f6f71552b9e/dsm_tts_1e68beda@240.gguf
+ out=Codes4Fun/tts-1.6b-en_fr-GGUF/dsm_tts_1e68beda@240.gguf
+ checksum=sha-256=886f9b4a0effa9b27965e4b8af91bbf6e2019b9a46df92e736ebd1c4c7229ecf
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+
+https://huggingface.co/kyutai/tts-voices/resolve/a73033b41726c0ae2f11647b426f04088ef8bb60/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors
+ out=kyutai/tts-voices/expresso/ex03-ex01_happy_001_channel1_334s.wav.1e68beda@240.safetensors
+ checksum=sha-256=1ebdba21a44fd08e240da543cde7e551b5a23fdd9bc60fbcb5cc7679b7a4fb33
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false

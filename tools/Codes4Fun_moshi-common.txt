@@ -1,0 +1,32 @@
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/README.md
+ out=Codes4Fun/moshi-common/README.md
+ checksum=sha-1=94642a243cfbb60bd87cdda3fc8b3a9fa679015f
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/mimi-e351c8d8-125.gguf
+ out=Codes4Fun/moshi-common/mimi-e351c8d8-125.gguf
+ checksum=sha-256=7e0c9ced83cbd035f70b82f1c5602673083fcccec006ea29f48d2e32c60ec697
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/tokenizer_spm_32k_3.model
+ out=Codes4Fun/moshi-common/tokenizer_spm_32k_3.model
+ checksum=sha-256=78d4336533ddc26f9acf7250d7fb83492152196c6ea4212c841df76933f18d2d
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/tokenizer_spm_4k_en.model
+ out=Codes4Fun/moshi-common/tokenizer_spm_4k_en.model
+ checksum=sha-256=d461765ae179566678c93091c5fa6f2984c31bbe990bf1aa62d92c64d91bc3f6
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/tokenizer_spm_8k_en_fr.model
+ out=Codes4Fun/moshi-common/tokenizer_spm_8k_en_fr.model
+ checksum=sha-256=cd87dd5d17169151782ac700280ec057e5d658a9afbe238a048ea5ff318cce69
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+
+

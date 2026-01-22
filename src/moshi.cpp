@@ -178,14 +178,29 @@ void moshi_set_n_threads( moshi_context_t * moshi, int n ) {
 
 // MARK: Mimi Codec
 
-static void mimi_alloc( mimi_codec_t * codec, moshi_context_t * moshi, const char * filename, int n_q ) {
+static void mimi_alloc( mimi_codec_t * codec, moshi_context_t * moshi,
+        const char * filename, int n_q ) {
     auto mimi = moshi_mimi_alloc_default( n_q );
-    auto mimi_weights = WeightLoader::from_safetensor( filename,
-        moshi->scratch_cpu, moshi->backend );
-    if ( ! mimi_weights ) {
-        fprintf(stderr, "error: mimi weights not found\n" );
-        exit(1);
+
+    std::string filepath = filename;
+    WeightLoader * mimi_weights;
+    if ( filepath.ends_with( ".safetensors" ) ) {
+        mimi_weights = WeightLoader::from_safetensor( filename,
+            moshi->scratch_cpu, moshi->backend );
+        if ( ! mimi_weights ) {
+            fprintf(stderr, "error: mimi weights not found\n" );
+            exit(1);
+        }
+    } else {
+        mimi_weights = WeightLoader::from_gguf( filename,
+            moshi->scratch_cpu, moshi->backend );
+        if ( ! mimi_weights ) {
+            fprintf(stderr, "error: mimi weights not found\n" );
+            exit(1);
+        }
+        mimi_weights->load_gguf();
     }
+
     get_weights( mimi_weights, "mimi.quantizer.", mimi->quantizer );
     get_weights( mimi_weights, "mimi.upsample.convtr.", mimi->upsample );
     get_weights( mimi_weights, "mimi.decoder_transformer.transformer.", mimi->decoder_transformer );
@@ -195,7 +210,8 @@ static void mimi_alloc( mimi_codec_t * codec, moshi_context_t * moshi, const cha
         get_weights( mimi_weights, "mimi.encoder_transformer.transformer.", mimi->encoder_transformer );
         get_weights( mimi_weights, "mimi.encoder.", mimi->encoder );
     }
-    mimi_weights->load();
+    if ( ! mimi_weights->is_gguf )
+        mimi_weights->load();
 
     codec->n_q = n_q;
     codec->moshi = moshi;
@@ -219,6 +235,10 @@ float mimi_frame_rate( mimi_codec_t * codec ) {
 
 int mimi_frame_size( mimi_codec_t * codec ) {
     return 1920;
+}
+
+void mimi_save_gguf( mimi_codec_t * codec, const char * filepath ) {
+    codec->mimi_weights->save_gguf( filepath );
 }
 
 // MARK: Mimi Encode

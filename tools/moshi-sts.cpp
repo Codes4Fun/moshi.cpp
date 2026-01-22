@@ -28,7 +28,7 @@ options:
   -m PATH,  --model PATH       path to where model is, can be relative to the
                                MODEL_CACHE environment variable, or program
                                directory, or working directory. by default is
-                               'kyutai/moshika-pytorch-bf16'
+                               'Codes4Fun/moshika-q4_k-GGUF'
   -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
   -g,       --gguf-caching     loads gguf if exists, saves gguf if it does not.
                                model is saved alongside the original
@@ -67,7 +67,8 @@ int main(int argc, char *argv[]) {
 
     const char * model_cache = getenv("MODEL_CACHE");
     std::string model_root = model_cache? model_cache : "";
-    std::string model_path = "kyutai/moshika-pytorch-bf16";
+    std::string model_path = "Codes4Fun/moshika-q4_k-GGUF/";
+    bool model_path_set = false;
     const char * quant = NULL;
     bool gguf_caching = false;
 
@@ -121,6 +122,7 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             model_path = argv[++i];
+            model_path_set = true;
             continue;
         }
         if (arg == "-q" || arg == "--quantize") {
@@ -208,6 +210,26 @@ int main(int argc, char *argv[]) {
                     model_path.c_str() );
                 exit(1);
             }
+        }
+    } else if ( ! model_path_set) {
+        // check defaults
+        std::vector<std::string> paths;
+        paths.push_back( model_root + "Codes4Fun/moshika-q4_k-GGUF/" );
+        paths.push_back( program_path + "Codes4Fun/moshika-q4_k-GGUF/" );
+        paths.push_back( "Codes4Fun/moshika-q4_k-GGUF/" );
+        paths.push_back( model_root + "kyutai/moshika-pytorch-bf16/" );
+        paths.push_back( program_path + "kyutai/moshika-pytorch-bf16/" );
+        paths.push_back( "kyutai/moshika-pytorch-bf16/" );
+        for ( auto & path : paths ) {
+            check_arg_path( path, found_file, found_dir );
+            if ( found_dir ) {
+                model_path = path;
+                break;
+            }
+        }
+        if ( ! found_dir ) {
+            fprintf( stderr, "error: could not find a default model directory\n" );
+            exit(1);
         }
     } else {
         std::string full_path = model_root + model_path;

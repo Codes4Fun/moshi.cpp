@@ -51,7 +51,9 @@ set(ARIA2_FILES_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ARIA2_FILES_DEST_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 file(GLOB ARIA2_FILES_TO_COPY
     RELATIVE ${ARIA2_FILES_SOURCE_DIR}
-    "${ARIA2_FILES_SOURCE_DIR}/kyutai_*.txt"
+    "${ARIA2_FILES_SOURCE_DIR}/aria2_*.txt"
+    "${ARIA2_FILES_SOURCE_DIR}/Codes4Fun_*.txt"
+    "moshi-defaults.txt"
 )
 add_custom_target(copy_aria2_files ALL
     COMMENT "Creating destination directory for text files"

@@ -117,24 +117,28 @@ sudo pacman -S aria2
 ```
 For windows you can unzip the aria2c.exe into the moshi directory.
 
-Aftwards you can run the following which will download and verify the minimal files to run moshi-tts and moshi-stt. This requires about 6 GB of space:
+Aftwards you can run the following which will download and verify the minimal files to run moshi-tts and moshi-stt. This requires about 9.7 GB of space:
 ```
-aria2c --disable-ipv6 -i kyutai_defaults.txt
+aria2c --disable-ipv6 -i moshi-defaults.txt
 ```
 
 If you want your models to be located in another directory, ideally set it's path in an environment variable named `MODEL_CACHE` and then add to the command line `-d`, so for example in linux use `-d $MODEL_CACHE` or in windows `-d %MODEL_CACHE%`.
 
-If you wish to download all available voices, 731 MB, run aria command again but change the last part from `-i kyutai_defaults.txt` to `-i kyutai_tts-voices.txt`.
+If you wish to download all available voices, 731 MB, run aria command again but change the last part from `-i moshi-defaults.txt` to `-i kyutai_tts-voices.txt`.
 
-These are the set of aria2 download scripts:
- * kyutai_defaults.txt - downloads default tts-1.6b and stt-1b and one voice.
+These are the available aria2 download scripts:
+ * moshi-defaults.txt - 9.7GB downloads files necessary to run all demos.
+ * kyutai_tts-voices.txt - 731 MB, all tts-1.6b and tts-0.75b voices
+ * Codes4Fun_moshi-common.txt - files shared between models.
+ * Codes4Fun_moshika-q4_k-GGUF.txt - Kyutai's Moshika model in quantized gguf format.
+ * Codes4Fun_stt-1b-en_fr-GGUF.txt - Kyutai's STT 1B model in gguf format.
+ * Codes4Fun_tts-1.6b-en_fr-GGUF.txt - Kyutai's TTS 1.6B model in gguf format.
+
+ These are additional aria2 download scripts, they are here for reference. they can be used but may not performed well unless converted/quantized:
  * kyutai_stt-1b-en_fr-candle.txt - downloaded as part of default.
  * kyutai_stt-2.6b-en.txt - 6 GB, large model without vad but better quality.
  * kyutai_tts-0.75b-en-public.txt - 2 GB, small model that uses audio files for voices.
  * kyutai_tts-1.6b-en_fr.txt - downloaded as part of default.
- * kyutai_tts-voices.txt - 731 MB, all tts-1.6b and tts-0.75b voices
-
-In development right now are speech-to-speech models that will be usable with moshi-sts, currently only moshika is tested to work:
  * kyutai_moshika-pytorch-bf16.txt - 16 GB female model 
  * kyutai_moshiko-pytorch-bf16.txt - 16 GB male model
 

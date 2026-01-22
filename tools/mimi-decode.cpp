@@ -10,13 +10,19 @@
 #include "util.h"
 
 static void print_usage(const char * program) {
-    fprintf( stderr, "usage: %s [option(s)] input.mimi output-file\n", program );
-    fprintf( stderr, "\noutput-file can also be wav, ogg, flac, and many more formats.\n" );
-    fprintf( stderr, "\noption(s):\n" );
-    fprintf( stderr, "  -h,       --help          show this help message\n" );
-    fprintf( stderr, "  -m FNAME, --model FNAME   mimi model.\n" );
-    fprintf( stderr, "  -l,       --list-devices  list devices and exit.\n" );
-    fprintf( stderr, "  -d NAME,  --device NAME   use named device.\n" );
+    fprintf( stderr, R"(usage: %s [option(s)] input.mimi output-file
+
+output-file can also be wav, ogg, flac, and many more formats.
+
+option(s):
+  -h,       --help          show this help message
+  -m FNAME, --model FNAME   mimi model.
+  -l,       --list-devices  list devices and exit.
+  -d NAME,  --device NAME   use named device.
+  -g,       --gguf-caching  loads gguf if exists, saves gguf if it does not.
+                            model is saved alongside the original
+                            safetensors file.
+)", program );
     exit(1);
 }
 
@@ -28,7 +34,8 @@ int main(int argc, char *argv[]) {
     const char * device = NULL;
     const char * input_filename = NULL;
     const char * output_filename = NULL;
-    std::string mimi_filepath = "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors";
+    std::string mimi_filepath = "Codes4Fun/moshi-common/mimi-e351c8d8-125.gguf";
+    bool gguf_caching = false;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -52,6 +59,10 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             device = argv[++i];
+            continue;
+        }
+        if (arg == "-g" || arg == "--gguf-caching" ) {
+            gguf_caching = true;
             continue;
         }
         if (arg[0] == '-') {
@@ -83,48 +94,39 @@ int main(int argc, char *argv[]) {
         std::string program_path = get_program_path(argv[0]);
 
         // the file is the same for all models
-        std::vector<std::string> paths = {
-            "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors",
-            "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors",
-            "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors",
-            "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors",
-            "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors",
-        };
+        std::vector<std::string> paths;
         if ( found_dir ) {
             ensure_path( mimi_filepath );
-            paths.push_back( mimi_filepath + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
-            paths.push_back( mimi_filepath + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
-            paths.push_back( mimi_filepath + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
-            paths.push_back( mimi_filepath + "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors" );
-            paths.push_back( mimi_filepath + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( mimi_filepath + "Codes4Fun/moshi-common/mimi-e351c8d8-125.gguf" );
         }
         if ( model_root.size() ) {
             ensure_path( model_root );
-            paths.push_back( model_root + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
-            paths.push_back( model_root + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
-            paths.push_back( model_root + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
-            paths.push_back( model_root + "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors" );
-            paths.push_back( model_root + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( model_root + "Codes4Fun/moshi-common/mimi-e351c8d8-125.gguf" );
         }
         if ( program_path.size() ) {
             ensure_path( program_path );
-            paths.push_back( program_path + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
-            paths.push_back( program_path + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
-            paths.push_back( program_path + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
-            paths.push_back( program_path + "kyutai/stt-2.6b-en/mimi-pytorch-e351c8d8@125.safetensors" );
-            paths.push_back( program_path + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
+            paths.push_back( program_path + "Codes4Fun/moshi-common/mimi-e351c8d8-125.gguf" );
         }
         for ( auto & path : paths ) {
             if ( file_exists( path.c_str() ) ) {
                 mimi_filepath = path;
                 found = true;
-                printf("using %s\n", mimi_filepath.c_str());
                 break;
             }
         }
         if ( ! found ) {
-            fprintf( stderr, "error: missing mimi file \"%s\"\n", mimi_filepath.c_str() );
+            fprintf( stderr, "error: missing mimi model \"%s\"\n", mimi_filepath.c_str() );
             exit(1);
+        }
+    }
+    printf("using %s\n", mimi_filepath.c_str());
+
+    std::string mimi_gguf = "";
+    if ( gguf_caching && mimi_filepath.ends_with(".safetensors") ) {
+        mimi_gguf = mimi_filepath + ".gguf";
+        if ( file_exists( mimi_gguf.c_str() ) ) {
+            mimi_filepath = mimi_gguf;
+            mimi_gguf = "";
         }
     }
 
@@ -151,6 +153,9 @@ int main(int argc, char *argv[]) {
     printf("loading %s\n", mimi_filepath.c_str());
     unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), n_q );
     printf("done loading\n");
+    if ( mimi_gguf.size() ) {
+        mimi_save_gguf( codec, mimi_gguf.c_str() );
+    }
     unref_ptr<mimi_decode_context_t> decoder = mimi_decode_alloc_context( codec );
     int frame_size = mimi_frame_size( codec );
 
