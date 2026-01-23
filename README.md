@@ -319,33 +319,3 @@ I was originally looking at designing the API after gstreamer and/or potentially
 Internally I tried to replicate what the original moshi did by using single header files for code, following it's file hierarchy. To make it easier for anyone interested to compare python to c++.
 
 My coding style is a combination of C++ and C, largely because C++ through deep abstraction can make it hard to debug, read, maintain, and refactor code. So I try to keep abstractions shallow, mostly used for reducing code bloat with automation. There are other misc things I do primarily for readability.
-
-# Critique of GGML
-
-I would like for the API to decide if it's going to be a data flow graph or a operation dependency graph, as of present, it seems to want to be both which creates confusion. For example many operations are 'inplace', (some are 'inplace' and are not described as 'inplace' such as the clamp but that is besides the point), having 'inplace' operations at all would suggest ggml graphs are more operation dependency graphs, since anything that uses a tensor after an inplace operation will use the modified tensor and not the tensor before the inplace.
-
-If the API is going to be an operation dependency graph, it should go all the way and have targeted outputs instead of returning the output, this way I can create the output tensor ahead of time and the operation on it later. So basically instead of this:
-
-```
-auto result = ggml_add( ctx, left, right );
-```
-
-```
-auto result = ggml_dup_tensor( ctx, left );
-ggml_add( ctx, result, left, right );
-```
-
-The reason this matters is for the same reason why the 'inplace' operations exist, it allows for more memory reuse, except instead of being limited to single special operations, it can be done to a larger string of operations, if the input to a graph has the same shape as the output then you could reuse the same tensor and save some memory in the process.
-
-This can also allow for a concept of stack memory, tensors can be created temporarily to complete a set of operations and then the memory reused, while the results of the operation are retained by the caller of the operation.
-
-The problem with this idea is what if I don't know what the shape is of my tensor ahead of time, maybe it is too complex to calculate and many input variables will decide the resulting shape. Then maybe the solution is to have a place holder tensor that gets allocated on compute. For example:
-
-```
-auto result = ggml_new_tensor_unshaped( ctx, GGML_TYPE_F32 );
-my_complex_operations( ctx, result, left, right );
-```
-
-I would consider that more of a feature then a requirement, but it also detaches tensors from their data, which happens with backend contexts anyway.
-
-
