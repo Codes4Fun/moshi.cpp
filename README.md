@@ -4,7 +4,66 @@
 A port of Kyutai's Moshi to C++ and ggml.
 * https://github.com/kyutai-labs/moshi
 
-As of right now, it exists primarily for learning and development. It's being done to learn about AI, pytorch, ggml, and other libraries and tools.
+## Quick Start (Linux)
+
+Make sure you have relatively recent drivers for linux.
+
+Download a [binary release](https://github.com/Codes4Fun/moshi.cpp/releases) for linux and extract somewhere.
+
+Open a terminal to where the files are extracted.
+
+Install some additional dependencies:
+```
+sudo apt install aria2 libsdl2-2.0-0
+```
+
+Download the models ( about 9.7GB ):
+```
+aria2c --disable-ipv6 -i moshi-defaults.txt
+```
+
+Run moshika, a hallucinating speech-to-speech model, requires microphone:
+```
+./moshi-sts
+```
+
+Run speech-to-text, requires microphone:
+```
+./moshi-stt
+```
+
+Run text-to-speech:
+```
+./moshi-tts "Hello World!"
+```
+
+## Quick Start (Windows)
+
+Make sure you have relatively recent drivers and have the latest [msvc runtimes](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170).
+
+Download a [binary release](https://github.com/Codes4Fun/moshi.cpp/releases) for windows and extract somewhere.
+
+Open a command line ( window + r keys, open 'cmd' ) or a PowerShell, and navigate to where the files are extracted.
+
+Download the models ( about 9.7GB ):
+```
+.\aria2c --disable-ipv6 -i moshi-defaults.txt
+```
+
+Run moshika, a hallucinating speech-to-speech model, requires microphone:
+```
+.\moshi-sts
+```
+
+Run speech-to-text, requires microphone:
+```
+.\moshi-stt
+```
+
+Run text-to-speech:
+```
+.\moshi-tts "Hello World!"
+```
 
 ## Status
 
