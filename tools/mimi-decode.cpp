@@ -174,7 +174,7 @@ int main(int argc, char *argv[]) {
     encoder.init_from( output_filename, 24000, AV_SAMPLE_FMT_FLT, mono );
 
     Resampler resampler;
-    resampler.set_input( 24000, AV_SAMPLE_FMT_FLT, mono );
+    resampler.set_input( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
     resampler.set_output( encoder.codec_ctx );
     resampler.init();
 
