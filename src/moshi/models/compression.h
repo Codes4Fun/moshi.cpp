@@ -170,7 +170,7 @@ void mimi_decode(
             mimi->upsample , emb );
 
         // decoder transformer
-        states->decoder_graph.T = (int) emb->ne[1];
+        states->decoder_graph.T = (int) emb->ne[0]; // transposed for projected
         emb = moshi_projected_transformer_graph_build( gctx,
             states->decoder_transformer,
             mimi->decoder_transformer,
@@ -290,7 +290,7 @@ void mimi_encode(
 
         auto emb = moshi_seanet_encoder( gctx, states->encoder, mimi->encoder, x );
 
-        states->encoder_graph.T = emb->ne[1];
+        states->encoder_graph.T = emb->ne[0]; // projected transposes this
         emb = moshi_projected_transformer_graph_build( gctx,
             states->encoder_transformer, mimi->encoder_transformer, emb );
 
