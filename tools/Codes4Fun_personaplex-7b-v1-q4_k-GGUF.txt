@@ -1,0 +1,139 @@
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/NATF0.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/NATF0.gguf
+ checksum=sha-256=af97a4dcf5e40f4c53801e964f7bce70051bc39c51545a596506243f8d83b8ea
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/NATF1.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/NATF1.gguf
+ checksum=sha-256=f2ea6c9b49247fe87f86317a4255a8d2c9fbef8b70ce4199244119dc44406088
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/NATF2.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/NATF2.gguf
+ checksum=sha-256=4384e81fc4cabbc97b6ac973ff8a11548ab56ec3a90f1422480b738967117830
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/NATF3.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/NATF3.gguf
+ checksum=sha-256=56681ea9ee74b7231843f831bed14efa26f5bbe3eccc21b02ec465ce7f92e114
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/NATM0.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/NATM0.gguf
+ checksum=sha-256=4a888c29652c3d7b18216275641a52cc172e78aa92d9db6fdf95259d6fdef2a1
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/NATM1.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/NATM1.gguf
+ checksum=sha-256=0e814b6da765969c18184d61cd39610974b1a5e9a5e40c010b7fa101baa4928b
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/NATM2.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/NATM2.gguf
+ checksum=sha-256=ded4fd2695fb54b12442fe8fc033889095586813c81044bd609e7db485df30fe
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/NATM3.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/NATM3.gguf
+ checksum=sha-256=a8eacc5cd512068897b827503ff45c3ef6e5ba50c8c6fadb3ab1a3d5083e1a59
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/VARF0.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/VARF0.gguf
+ checksum=sha-256=4b0f02a478a12a2a11440d8b8314ad19b6a215f5f7676754402871030041dcc9
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/VARF1.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/VARF1.gguf
+ checksum=sha-256=7cf9dad88ba1476e6e4ce49bd9fd69f70cd44567f56d6fcabc2262d0fae0c214
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/VARF2.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/VARF2.gguf
+ checksum=sha-256=524450de12e064ba29b2ee33f0ac14191d65032f784005df565f0505a3b6c9b6
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/VARF3.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/VARF3.gguf
+ checksum=sha-256=ed864a113c457d7bda87e34a08d58d617f92adf501686761001a65beaca8f9cc
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/VARF4.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/VARF4.gguf
+ checksum=sha-256=8543f1d58d51ec6af0233d0cfeceac08e86180f4c7e5d7826a2d21eb662290da
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/VARM0.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/VARM0.gguf
+ checksum=sha-256=eb83f66ce887bb79ede4003d10d7ba5bb8512ccb276e166419678829b7ddae0b
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/VARM1.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/VARM1.gguf
+ checksum=sha-256=96b1b31d4e7001643fc664bb7a9b62a7742a1b352eaa6e9cb4c028bcbe6f3140
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/VARM2.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/VARM2.gguf
+ checksum=sha-256=f42092e8bbd708f56ad9ae245091b5454eb953a4572d0524308f1ad7d6e09a6e
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/VARM3.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/VARM3.gguf
+ checksum=sha-256=7b896fd7fb173176f17a422f6749cf8d97bb00c3408c69166126435a60e1575c
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/voices/VARM4.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/voices/VARM4.gguf
+ checksum=sha-256=bb752e783abd8cd2c1f0e0badbdc10a5a1074a76bc7f880e86731b1038ef76e8
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/README.md
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/README.md
+ checksum=sha-1=6f5f0cc2a9f16aa12b1b8535448b6c757f398976
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/model-q4_k.gguf
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/model-q4_k.gguf
+ checksum=sha-256=73c4eb247740a48eebe5319ef767669dc8a06fd333b152a6cd6e12bacb64553d
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/personaplex-7b-v1-q4_k-GGUF/resolve/1685c70257e525bc6c72470eee1ab2cacff3f709/personaplex-config.json
+ out=Codes4Fun/personaplex-7b-v1-q4_k-GGUF/personaplex-config.json
+ checksum=sha-1=7682e044327d320eefe374c82d5ae50beae37f60
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/tokenizer_spm_32k_3.model
+ out=Codes4Fun/moshi-common/tokenizer_spm_32k_3.model
+ checksum=sha-256=78d4336533ddc26f9acf7250d7fb83492152196c6ea4212c841df76933f18d2d
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false
+https://huggingface.co/Codes4Fun/moshi-common/resolve/a39d64307b971321140a67dc1bc4a8b0e43e4e6b/mimi-e351c8d8-125.gguf
+ out=Codes4Fun/moshi-common/mimi-e351c8d8-125.gguf
+ checksum=sha-256=7e0c9ced83cbd035f70b82f1c5602673083fcccec006ea29f48d2e32c60ec697
+ auto-file-renaming=false
+ check-integrity=true
+ allow-overwrite=false

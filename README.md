@@ -10,6 +10,8 @@ With additional support for NVIDIA's PersonaPlex.
 There is a separate project for Kyutai's Pocket TTS.
 * https://github.com/Codes4Fun/pocket-tts.cpp
 
+---
+
 - [Status](#status)
 - [Quick Start Linux](#quick-start-linux)
 - [Quick Start Windows](#quick-start-windows)
