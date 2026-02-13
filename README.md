@@ -24,13 +24,20 @@ There is a separate project for Kyutai's Pocket TTS.
 
 ## Status
 
-The base library supports Kyutai's earlier Moshi models, speech to speech, text to speech, speech to text. And it supports NVIDIA's PersonaPlex is based on Moshi.
+The base library supports Kyutai's earlier Moshi models, speech to speech, text to speech, speech to text. And it supports NVIDIA's PersonaPlex since it is based on Moshi.
 
 PersonaPlex support progress:
 - [x] load model and quantized saving/loading
 - [x] load converted voice embeddings (pt files must be converted to safetenors)
 - [ ] voice from audio file
 - [ ] system text prompt
+- [ ] standalone personaplex demo tool
+
+General issues:
+- [ ] refactor api to externalize ggml initialization like pocket-tts.cpp
+- [ ] refactor demo tools around common library
+- [ ] wrap sentencepiece into it's own dynamic library
+- [ ] investigate timing issue with sdl
 
 There are multiple tools that demonstrate different components:
 * mimi-encode - demonstrates using mimi to encode different inputs to a mimi file
@@ -82,6 +89,21 @@ Run text-to-speech:
 ./moshi-tts "Hello World!"
 ```
 
+### PersonaPlex
+
+Download the models ( about 5.0GB ):
+```
+aria2c --disable-ipv6 -i Codes4Fun_personaplex-7b-v1-q4_k-GGUF.txt
+```
+
+Run the model with 8GB of VRAM:
+```
+./moshi-sts -m Codes4Fun/personaplex-7b-v1-q4_k-GGUF -c 2000
+```
+If you have more than 8GB of VRAM, remove the `-c 2000` option.
+
+See `.\moshi-sts -h` for voice options.
+
 ## Quick Start Windows
 
 Make sure you have relatively recent drivers and have the latest [msvc runtimes](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170).
@@ -109,6 +131,21 @@ Run text-to-speech:
 ```
 .\moshi-tts "Hello World!"
 ```
+
+### PersonaPlex
+
+Download the models ( about 5.0GB ):
+```
+.\aria2c --disable-ipv6 -i Codes4Fun_personaplex-7b-v1-q4_k-GGUF.txt
+```
+
+Run the model with 8GB of VRAM:
+```
+.\moshi-sts -m Codes4Fun/personaplex-7b-v1-q4_k-GGUF -c 2000
+```
+If you run into issues you can try to lower `-c 2000` to see if it works, and if you have more than 8GB of VRAM, you can remove the `-c 2000` option.
+
+See `.\moshi-sts -h` for voice options.
 
 ## Build Dependencies
 
