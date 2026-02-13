@@ -34,7 +34,7 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
             norm_cross = new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 };
         }
         auto layer = new moshi_streaming_transformer_layer_t{
-            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
+            /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 1e-08f },
             /*.norm1=*/ NULL,
             /*self_attn=*/ new moshi_smha_t{
                 /*.embed_dim=*/ (int)config->dim,
@@ -52,7 +52,7 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
             /*.layer_scale_1=*/ NULL,
             /*.norm_cross=*/ norm_cross,
             /*.cross_attention=*/ cross_attention,
-            /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
+            /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 1e-08f },
             /*.norm2=*/ NULL,
             /*.weights_per_step_schedule=*/ {},
             /*.gating=*/ {
@@ -99,7 +99,7 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
         lm_depformer->dim_per_head = (int)config->depformer_dim / config->depformer_num_heads;
         for ( int64_t i = 0; i < config->depformer_num_layers; i++ ) {
             auto layer = new moshi_streaming_transformer_layer_t{
-                /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
+                /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 1e-08f },
                 /*.norm1=*/ NULL,
                 /*self_attn=*/ new moshi_smha_t{
                     /*.embed_dim=*/ (int)config->depformer_dim,
@@ -117,7 +117,7 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
                 /*.layer_scale_1=*/ NULL,
                 /*.norm_cross=*/ NULL,
                 /*.cross_attention=*/ NULL,
-                /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 0.000000 },
+                /*.norm2_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 1e-08f },
                 /*.norm2=*/ NULL,
                 /*.weights_per_step_schedule=*/ {},
                 /*.gating=*/ {},
@@ -220,6 +220,8 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
     lmmodel->text_initial_token_id = (int) config->text_card;
     lmmodel->initial_token_id = (int) config->card;
     
+    lmmodel->personaplex = config->model_type == "personaplex";
+
     return lmmodel;
 }
 
@@ -294,7 +296,7 @@ moshi_mimi_t * moshi_mimi_alloc_default( int n_q, bool encoder = true ) {
     for ( int64_t i = 0; i < 8; i++ ) {
         auto layer = new moshi_streaming_transformer_layer_t{
             /*.norm1_rms=*/ NULL,
-            /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
+            /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 1e-05f },
             /*self_attn=*/ new moshi_smha_t{
                 /*.embed_dim=*/ 512,
                 /*.num_heads=*/ 8,
@@ -312,7 +314,7 @@ moshi_mimi_t * moshi_mimi_alloc_default( int n_q, bool encoder = true ) {
             /*.norm_cross=*/ NULL,
             /*.cross_attention=*/ NULL,
             /*.norm2_rms=*/ NULL,
-            /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
+            /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 1e-05f },
             /*.weights_per_step_schedule=*/ {},
             /*.gating=*/ {},
             /*.linear1=*/ new torch_nn_linear_t,
@@ -525,7 +527,7 @@ moshi_mimi_t * moshi_mimi_alloc_default( int n_q, bool encoder = true ) {
         for ( int64_t i = 0; i < 8; i++ ) {
             auto layer = new moshi_streaming_transformer_layer_t{
                 /*.norm1_rms=*/ NULL,
-                /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
+                /*.norm1=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 1e-05f },
                 /*self_attn=*/ new moshi_smha_t{
                     /*.embed_dim=*/ 512,
                     /*.num_heads=*/ 8,
@@ -543,7 +545,7 @@ moshi_mimi_t * moshi_mimi_alloc_default( int n_q, bool encoder = true ) {
                 /*.norm_cross=*/ NULL,
                 /*.cross_attention=*/ NULL,
                 /*.norm2_rms=*/ NULL,
-                /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 0.000000 },
+                /*.norm2=*/ new torch_nn_layer_norm_t{ /*.eps=*/ 01e-05f },
                 /*.weights_per_step_schedule=*/ {},
                 /*.gating=*/ {},
                 /*.linear1=*/ new torch_nn_linear_t,

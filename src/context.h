@@ -15,6 +15,20 @@ public:
         ne[3] = ne3;
     }
 
+    GGML_NE( std::vector<int> _ne, bool reverse = false ) {
+        assert( _ne.size() <= GGML_MAX_DIMS );
+        int i = 0;
+        if ( ! reverse ) {
+            for ( ; i < GGML_MAX_DIMS && i < _ne.size(); i++ )
+                ne[i] = _ne[i];
+        } else {
+            for ( ; i < GGML_MAX_DIMS && i < _ne.size(); i++ )
+                ne[i] = _ne[_ne.size()-1 - i];
+        }
+        for ( ; i < GGML_MAX_DIMS; i++ )
+            ne[i] = 1;
+    }
+
     operator int64_t* () {
         return ne;
     }
@@ -31,6 +45,8 @@ ggml_type safetensor_get_type(std::string dtype) {
         return GGML_TYPE_F16;
     if (dtype == "BF16")
         return GGML_TYPE_BF16;
+    if (dtype == "I32")
+        return GGML_TYPE_I32;
     assert(false);
     return (ggml_type)-1;
 }

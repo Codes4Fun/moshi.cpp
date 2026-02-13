@@ -35,16 +35,22 @@ setup_rpath(moshi-stt)
 add_executable(moshi-sts moshi-sts.cpp)
 target_link_libraries(moshi-sts PRIVATE moshi ${GGML_LIBRARIES} ${FFMPEG_LIBRARIES} SDL2::SDL2 ${SentencePiece_LIBRARIES})
 target_include_directories(moshi-sts PRIVATE ${GGML_INCLUDE_DIRS} ${SentencePiece_INCLUDE_DIRS} ${FFMPEG_INCLUDE_DIRS})
-set(CONFIG_FILE_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/moshi-config.json)
-set(CONFIG_FILE_DEST $<TARGET_FILE_DIR:moshi-sts>)
-add_custom_command(
-    TARGET moshi-sts
-    POST_BUILD        # This runs after the target is built
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CONFIG_FILE_SOURCE}
-            ${CONFIG_FILE_DEST}
-    COMMENT "Copying configuration file to build directory"
+set(CONFIG_FILES_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+file(GLOB CONFIG_FILES_TO_COPY
+    RELATIVE ${CONFIG_FILES_SOURCE_DIR}
+    "${CONFIG_FILES_SOURCE_DIR}/*-config.json"
 )
+set(CONFIG_FILES_DEST_DIR $<TARGET_FILE_DIR:moshi-sts>)
+foreach(file ${CONFIG_FILES_TO_COPY})
+    add_custom_command(
+        TARGET moshi-sts
+        POST_BUILD # Run this command after the target's main command
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CONFIG_FILES_SOURCE_DIR}/${file}"
+                "${CONFIG_FILES_DEST_DIR}/${file}"
+        COMMENT "Copying ${file} to ${CONFIG_FILES_DEST_DIR}"
+    )
+endforeach()
 setup_rpath(moshi-sts)
 
 set(ARIA2_FILES_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})

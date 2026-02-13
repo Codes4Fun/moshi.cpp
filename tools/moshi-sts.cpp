@@ -34,12 +34,37 @@ options:
                                model is saved alongside the original
                                safetensors file.
 
+  -c N,     --context N        default: 3000, lowering reduces vram usage but
+                               reduces effective conversation time. higher does
+                               not improve effective conversation time.
   -s N,     --seed N           seed value.
   -t N,     --temperature N    consistency vs creativity, default 0.8
   -b        --bench            benchmark mode that disables sdl io and ends
                                after a few seconds.
   -i FNAME                     talk to moshi from an audio file.
             --delay            delay the audio file in frames (12.5 fps)
+
+personaplex options:
+  -v NAME,  --voice NAME       either a filepath to a safetensor or one of:
+                                    NATF0
+                                    NATF1
+                                    NATF2
+                                    NATF3
+                                    NATM0
+                                    NATM1
+                                    NATM2
+                                    NATM3
+                                    VARF0
+                                    VARF1
+                                    VARF2
+                                    VARF3
+                                    VARF4
+                                    VARM0
+                                    VARM1
+                                    VARM2
+                                    VARM3
+                                    VARM4
+
 )", program);
     exit(1);
 }
@@ -69,9 +94,11 @@ int main(int argc, char *argv[]) {
     std::string model_root = model_cache? model_cache : "";
     std::string model_path = "Codes4Fun/moshika-q4_k-GGUF/";
     bool model_path_set = false;
+    bool personaplex = false;
     const char * quant = NULL;
     bool gguf_caching = false;
 
+    int context = -1;
     int seed = (int)time(NULL);
     float depth_temperature = 0.8f;
     float text_temperature = 0.7f;
@@ -79,6 +106,8 @@ int main(int argc, char *argv[]) {
 
     const char * input = NULL;
     int input_delay = 0;
+
+    std::string personaplex_voice_filepath = "";
 
     //////////////////////
     // MARK: Parse Args
@@ -123,6 +152,7 @@ int main(int argc, char *argv[]) {
             }
             model_path = argv[++i];
             model_path_set = true;
+            personaplex = model_path.find("personaplex") != std::string::npos;
             continue;
         }
         if (arg == "-q" || arg == "--quantize") {
@@ -135,6 +165,14 @@ int main(int argc, char *argv[]) {
         }
         if (arg == "-g" || arg == "--gguf-caching" ) {
             gguf_caching = true;
+            continue;
+        }
+        if (arg == "-c" || arg == "--context") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires value\n", argv[i] );
+                exit(1);
+            }
+            context = std::stoi(argv[++i]);
             continue;
         }
         if (arg == "-s" || arg == "--seed") {
@@ -172,6 +210,14 @@ int main(int argc, char *argv[]) {
         }
         if (arg == "-b" || arg == "--bench")  {
             bench = true;
+            continue;
+        }
+        if (arg == "-v" || arg == "--voice") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" must be followed by filepath or voice name\n", argv[i] );
+                exit(1);
+            }
+            personaplex_voice_filepath = argv[++i];
             continue;
         }
         if (arg[0] == '-') {
@@ -255,18 +301,34 @@ int main(int argc, char *argv[]) {
 
     // default config
     moshi_config_t config;
-    std::string config_filepath = model_path + "config.json";
-    if ( ! file_exists( config_filepath.c_str() ) ) {
-        config_filepath = program_path + "moshi-config.json";
+    std::string config_filepath;
+    if ( personaplex ) {
+        config_filepath = model_path + "personaplex-config.json";
         if ( ! file_exists( config_filepath.c_str() ) ) {
-            fprintf( stderr, "error: failed to find a config.json\n" );
-            exit(1);
+            config_filepath = program_path + "personaplex-config.json";
+            if ( ! file_exists( config_filepath.c_str() ) ) {
+                fprintf( stderr, "error: failed to find a config.json\n" );
+                exit(1);
+            }
+        }
+    } else {
+        config_filepath = model_path + "config.json";
+        if ( ! file_exists( config_filepath.c_str() ) ) {
+            config_filepath = program_path + "moshi-config.json";
+            if ( ! file_exists( config_filepath.c_str() ) ) {
+                fprintf( stderr, "error: failed to find a config.json\n" );
+                exit(1);
+            }
         }
     }
 
     if ( moshi_get_config( &config, config_filepath.c_str() ) != 0 ) {
         fprintf( stderr, "error: reading config\n");
         exit(1);
+    }
+
+    if ( context > 0 ) {
+        config.context = context;
     }
 
     std::string model_filepath = model_path + config.moshi_name;
@@ -347,6 +409,39 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    if ( personaplex && personaplex_voice_filepath.size()
+    && ! file_exists( personaplex_voice_filepath.c_str() ) ) {
+        std::vector<std::string> paths;
+        if ( personaplex_voice_filepath.size() == 5 ) {
+            std::string expanded_filepath = model_path + "voices/" + personaplex_voice_filepath;
+            paths.push_back( expanded_filepath + ".gguf" );
+            paths.push_back( expanded_filepath + ".safetensors" );
+        }
+        paths.push_back( model_path + personaplex_voice_filepath );
+        if ( model_root.size() ) {
+            paths.push_back( model_root + personaplex_voice_filepath );
+        }
+        if ( program_path.size() ) {
+            paths.push_back( program_path + personaplex_voice_filepath );
+        }
+
+        bool found = false;
+        for ( auto & path : paths ) {
+            if ( file_exists( path.c_str() ) ) {
+                personaplex_voice_filepath = path;
+                found = true;
+                break;
+            }
+        }
+
+        if ( ! found ) {
+            fprintf( stderr, "error: failed to find voice file \"%s\"\n", personaplex_voice_filepath.c_str() );
+            exit(1);
+        }
+    }
+
+    // MARK: Loading
+
     srand( seed );
     printf( "seed: %d\n", seed );
 
@@ -413,8 +508,10 @@ int main(int argc, char *argv[]) {
 
     // codec
     int num_codebooks = (int)( config.n_q - config.dep_q );
-    if ( config.dep_q > config.n_q )
+    if ( config.dep_q >= config.n_q )
         num_codebooks = (int) config.dep_q;
+    if ( personaplex )
+        num_codebooks = 8;
     unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi,
         mimi_filepath.c_str(),
         num_codebooks );
@@ -452,6 +549,10 @@ int main(int argc, char *argv[]) {
         resampler.set_input( input_decoder.codec_ctx );
         resampler.set_output( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
         resampler.init();
+    }
+
+    if ( personaplex && personaplex_voice_filepath.size() ) {
+        moshi_lm_personaplex_load_voice( moshi, gen, personaplex_voice_filepath.c_str() );
     }
 
     /////////////////////////
@@ -509,18 +610,7 @@ int main(int argc, char *argv[]) {
     std::vector<int16_t> tokens(num_codebooks);
     int text_token;
 
-    // warmup
     std::vector<float> blank(frame_size);
-    for ( int i = 0; i < 4; i++ ) {
-        memset(blank.data(), 0, blank.size() * sizeof(blank[0]));
-        mimi_encode_send( encoder, blank.data() );
-        mimi_encode_receive( encoder, tokens.data() );
-        moshi_lm_send2( gen, tokens );
-        if ( ! moshi_lm_receive( gen, text_token, tokens ) )
-            continue;
-        mimi_decode_send( decoder, tokens.data() );
-        mimi_decode_receive( decoder, blank.data() );
-    }
 
     if ( ! bench ) {
         SDL_PauseAudioDevice(cap_dev, 0);

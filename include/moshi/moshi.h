@@ -47,6 +47,7 @@ struct mimi_encode_context_t;
 
 MOSHI_API mimi_encode_context_t * mimi_encode_alloc_context( mimi_codec_t * codec );
 MOSHI_API void unref( mimi_encode_context_t * context );
+MOSHI_API void mimi_encode_reset( mimi_encode_context_t * context );
 MOSHI_API void mimi_encode_send( mimi_encode_context_t * context, float * frame );
 MOSHI_API void mimi_encode_receive( mimi_encode_context_t * context, int16_t * tokens );
 
@@ -56,6 +57,7 @@ struct mimi_decode_context_t;
 
 MOSHI_API mimi_decode_context_t * mimi_decode_alloc_context( mimi_codec_t * codec );
 MOSHI_API void unref( mimi_decode_context_t * context );
+MOSHI_API void mimi_decode_reset( mimi_decode_context_t * context );
 MOSHI_API void mimi_decode_send( mimi_decode_context_t * context, int16_t * tokens );
 MOSHI_API void mimi_decode_receive( mimi_decode_context_t * context, float * frame );
 
@@ -185,6 +187,7 @@ MOSHI_API void unref( moshi_lm_gen_t * gen );
 MOSHI_API int moshi_lm_set_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen, const char * filepath );
 MOSHI_API int moshi_lm_load_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen );
 MOSHI_API int moshi_lm_voice_prefix( moshi_lm_gen_t * gen, std::deque<int> & text_prefix, std::deque<std::vector<int>> & audio_prefix );
+MOSHI_API int moshi_lm_personaplex_load_voice( moshi_context_t * moshi, moshi_lm_gen_t * gen, const char * filename );
 
 MOSHI_API void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature, bool logging = false );
 MOSHI_API void moshi_lm_send( moshi_lm_gen_t * gen, Entry * entry );

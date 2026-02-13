@@ -268,6 +268,13 @@ void unref( mimi_encode_context_t * context ) {
     delete context;
 }
 
+void mimi_encode_reset( mimi_encode_context_t * context ) {
+    auto scratch = context->codec->moshi->scratch.ptr;
+    auto mimi = context->codec->mimi.ptr;
+    auto states = context->states.ptr;
+    init( scratch, states, mimi );
+}
+
 void mimi_encode_send( mimi_encode_context_t * context, float * frame ) {
     memcpy( context->frame.data(), frame, context->frame.size() * 4 );
 }
@@ -317,6 +324,13 @@ mimi_decode_context_t * mimi_decode_alloc_context( mimi_codec_t * codec ) {
 
 void unref( mimi_decode_context_t * context ) {
     delete context;
+}
+
+void mimi_decode_reset( mimi_decode_context_t * context ) {
+    auto scratch = context->codec->moshi->scratch.ptr;
+    auto mimi = context->codec->mimi.ptr;
+    auto states = context->states.ptr;
+    init( scratch, states, mimi );
 }
 
 void mimi_decode_send( mimi_decode_context_t * context, int16_t * tokens ) {
@@ -817,13 +831,61 @@ int moshi_lm_voice_prefix( moshi_lm_gen_t * gen, std::deque<int> & text_prefix, 
     return 0;
 }
 
+int moshi_lm_personaplex_load_voice( moshi_context_t * moshi, moshi_lm_gen_t * gen, const char * filepath ) {
+    std::string filename = filepath;
+    auto ext_index = filename.find_last_of('.');
+    if ( ext_index == std::string::npos ) {
+        return -1;
+    }
+    std::string ext = filename.substr(ext_index);
+    if ( ext == ".safetensors" ) {
+        gen->voice_weights = WeightLoader::from_safetensor( filepath,
+            moshi->scratch_cpu, moshi->backend );
+        if ( ! gen->voice_weights )
+            return -1;
+    } else if ( ext == ".gguf" ) {
+        gen->voice_weights = WeightLoader::from_gguf( filepath,
+            moshi->scratch_cpu, moshi->backend );
+        if ( ! gen->voice_weights )
+            return -1;
+
+        gen->voice_weights->load_gguf();
+    } else {
+        return -1;
+    }
+
+    int n;
+    ggml_tensor * voice_prompt_embeddings, * voice_prompt_cache;
+    n = gen->voice_weights->fetch( &voice_prompt_embeddings, "voice.embeddings" );
+    assert( n );
+    n = gen->voice_weights->fetch( &voice_prompt_cache, "voice.cache" );
+    assert( n );
+    if ( ! gen->voice_weights->is_gguf ) {
+        gen->voice_weights->load();
+//#define SAVE_GGUF
+#ifdef SAVE_GGUF
+        gen->voice_weights->save_gguf( (filename.substr(0, ext_index) + ".gguf").c_str() );
+#endif
+    }
+
+    gen->voice = new voice_t;
+    gen->voice->ctx = NULL;
+    gen->voice->buffer = NULL;
+    gen->voice->sum = NULL;
+    gen->voice->cross = NULL;
+    gen->voice->prompt_embeddings = voice_prompt_embeddings;
+    gen->voice->prompt_cache = voice_prompt_cache;
+
+    return 0;
+}
+
 void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature, bool logging ) {
     const int max_padding = 8;
     const int initial_padding = 2;
     const int second_stream_ahead = gen->lm->second_stream_ahead;
     gen->state_ctx = new StateContext( moshi->backend );
     ggml_tensor * condition_cross = NULL;
-    if ( gen->voice ) {
+    if ( gen->voice && ! gen->lm->model->personaplex ) {
         condition_cross = gen->voice->cross;
         gen->machine = new StateMachine(gen->lm->model->text_card + 1, second_stream_ahead, max_padding, initial_padding);
         gen->machine->logging = logging;
@@ -853,6 +915,16 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
 
     gen->ctx = new ScratchContext( 256, moshi->backend );
     gen->audio_tokens.resize( gen->lm->model->num_audio_codebooks );
+
+    // personaplex process system prompts
+    if ( gen->lm->model->personaplex ) {
+        moshi_lmgen_step_system_prompts(
+            *gen->ctx,
+            &gen->lmgen, gen->lmgen_state,
+            gen->lm_states,
+            gen->voice
+        );
+    }
 }
 
 void moshi_lm_send( moshi_lm_gen_t * gen, Entry * entry ) {

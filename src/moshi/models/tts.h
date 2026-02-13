@@ -34,15 +34,6 @@ void get_weights( WeightLoader * loader, conditioners_t * cond ) {
     assert( r );
 }
 
-struct voice_t {
-    ggml_context * ctx;
-    ggml_backend_buffer * buffer;
-    ggml_tensor * sum;
-    ggml_tensor * cross;
-    std::deque<int> text_prefixes;
-    std::deque<std::vector<int>> audio_prefixes;
-};
-
 struct moshi_ttsmodel_t {
     own_ptr<ScratchContext> scratch_cpu;
     own_ptr<ScratchContext> scratch;

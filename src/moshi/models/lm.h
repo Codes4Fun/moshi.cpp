@@ -364,6 +364,7 @@ struct moshi_lmmodel_t {
     int delay_steps;
     int text_initial_token_id;
     int initial_token_id;
+    bool personaplex;
 };
 
 void get_weights( WeightLoader * loader, std::string path, moshi_lmmodel_t * lm ) {
@@ -688,6 +689,24 @@ void moshi_lmmodel_forward_text_step(
         lm->transformer, state->transformer, state->transformer_T );
 }
 
+// personaplex
+
+std::tuple<ggml_tensor*, ggml_tensor*> moshi_lmmodel_forward_embedding(
+        ScratchContext & ctx,
+        moshi_lmmodel_t * lm,
+        moshi_lmmodel_states_t * state,
+        ggml_tensor * input
+    ) {
+    auto transformer_out = moshi_streaming_transformer_graph( ctx,
+        lm->transformer, state->transformer, input );
+
+    if ( lm->out_norm )
+        transformer_out = moshi_rms_norm( ctx, lm->out_norm, transformer_out );
+
+    auto text_logits = torch_nn_linear( ctx, lm->text_linear, transformer_out );
+
+    return { transformer_out, text_logits };
+}
 
 // moshi.models.lm.LMGen
 
@@ -705,7 +724,9 @@ moshi_lmgen_state_t * moshi_lmgen_state( moshi_lmmodel_t * lm ) {
         0, // offset
         0, // skip
     };
-    const int cache_capacity = lm->max_delay + 2;
+    int cache_capacity = lm->max_delay + 2;
+    if ( lm->personaplex )
+        cache_capacity += 1;
     state->cache.resize( cache_capacity );
     for (int c = 0; c < cache_capacity; c++) {
         auto & cache = state->cache[c];
@@ -720,6 +741,18 @@ moshi_lmgen_state_t * moshi_lmgen_state( moshi_lmmodel_t * lm ) {
         state->initial[i] = lm->initial_token_id;
     return state;
 }
+
+struct voice_t {
+    ggml_context * ctx;
+    ggml_backend_buffer * buffer;
+    ggml_tensor * sum;
+    ggml_tensor * cross;
+    std::deque<int> text_prefixes;
+    std::deque<std::vector<int>> audio_prefixes;
+    // personaplex
+    ggml_tensor * prompt_embeddings;
+    ggml_tensor * prompt_cache;
+};
 
 struct moshi_lmgen_t {
     moshi_lmmodel_t * lm;
@@ -764,10 +797,13 @@ bool moshi_lmgen_step(
     auto text_prefixes = lmgen->text_prefixes;
     auto audio_prefixes = lmgen->audio_prefixes;
     //ProfileScope profile(time_lmgen_step_us);
-    int CT = (int) state->cache.size();
-    int dep_q_1 = lm->dep_q + 1;
+    const int CT = (int) state->cache.size();
+    int dep_q = lm->dep_q;
+    if ( lm->personaplex )
+        dep_q = 8;
+    int dep_q_1 = dep_q + 1;
 
-    auto needed_tokens = lm->num_codebooks - lm->dep_q - 1;
+    auto needed_tokens = lm->num_codebooks - dep_q - 1;
     if ( needed_tokens > 0 ) {
         assert( (int)int_audio_tokens.size() >= needed_tokens );
         assert( (int)lm->delays.size() >= needed_tokens );
@@ -937,3 +973,105 @@ bool moshi_lmgen_step(
     return true;
 }
 
+// personaplex system prompts
+
+std::vector<int> SILENCE_TOKENS = { 948, 243, 1178, 546, 1736, 1030, 1978, 2008 };
+std::vector<int> SINE_TOKENS    = { 430, 1268, 381, 1611, 1095, 1495, 56, 472 };
+
+void moshi_lmgen_step_voice_prompt(
+    ScratchContext & scratch,
+    moshi_lmgen_t * lmgen,
+    moshi_lmgen_state_t * state,
+    moshi_lmmodel_states_t * lm_states,
+    voice_t * voice
+) {
+    if ( ! voice )
+        return;
+    if ( voice->prompt_embeddings ) {
+        auto use_sampling = lmgen->use_sampling;
+        auto temp = lmgen->temp;
+        auto temp_text = lmgen->temp_text;
+        auto top_k = lmgen->top_k;
+        auto top_k_text = lmgen->top_k_text;
+        std::vector<int> int_audio_tokens( lmgen->lm->dep_q );
+        for ( int i = 0; i < voice->prompt_embeddings->ne[3]; i++ ) {
+            auto input = ggml_view_4d( scratch, voice->prompt_embeddings,
+                voice->prompt_embeddings->ne[0],
+                voice->prompt_embeddings->ne[1],
+                voice->prompt_embeddings->ne[2],
+                1,
+                voice->prompt_embeddings->nb[1],
+                voice->prompt_embeddings->nb[2],
+                voice->prompt_embeddings->nb[3],
+                voice->prompt_embeddings->nb[3] * i
+            );
+            input = ggml_cast( scratch, input, GGML_TYPE_F32 );
+            auto [scratch_transformer_out, text_logits] = moshi_lmmodel_forward_embedding(
+                scratch, lmgen->lm, lm_states, input );
+
+            auto cpy_transformer_out = ggml_cpy( scratch,
+                scratch_transformer_out, lm_states->transformer_out );
+            scratch.build_forward_expand( cpy_transformer_out );
+
+            // note this does the compute
+            auto text_token = moshi_sample_token_int( scratch, text_logits,
+                use_sampling, temp_text, top_k_text );
+
+            text_token = 3;
+
+            moshi_lmmodel_depformer_step(
+                scratch, lmgen->lm, lm_states,
+                text_token, use_sampling, temp, top_k,
+                int_audio_tokens );
+
+            state->offset++;
+        }
+
+        // note that dimensions inverted
+        assert( voice->prompt_cache->type == GGML_TYPE_I32 );
+        int cache_height = state->cache.size(); // time
+        int cache_width = state->cache[0].size();
+        assert( cache_height == voice->prompt_cache->ne[0] );
+        assert( cache_width == voice->prompt_cache->ne[1] );
+        assert( voice->prompt_cache->ne[2] == 1 );
+        assert( voice->prompt_cache->ne[3] == 1 );
+        std::vector<int32_t> cache( ggml_nelements( voice->prompt_cache ) );
+        ggml_backend_tensor_get( voice->prompt_cache, cache.data(), 0, ggml_nbytes( voice->prompt_cache) );
+        for ( int i = 0; i < cache_height; i++ ) {
+            for ( int j = 0; j < cache_width; j++ ) {
+                state->cache[i][j] = cache[ i + j * cache_height ];
+            }
+        }
+    }
+}
+
+void moshi_lmgen_step_text_prompt(
+    ScratchContext & ctx,
+    moshi_lmgen_t * lmgen,
+    moshi_lmgen_state_t * state,
+    moshi_lmmodel_states_t * lm_states
+) {
+    // TODO
+}
+
+void moshi_lmgen_step_audio_silence(
+    ScratchContext & ctx,
+    moshi_lmgen_t * lmgen,
+    moshi_lmgen_state_t * state,
+    moshi_lmmodel_states_t * lm_states
+) {
+    // TODO
+}
+
+void moshi_lmgen_step_system_prompts(
+    ScratchContext & ctx,
+    moshi_lmgen_t * lmgen,
+    moshi_lmgen_state_t * state,
+    moshi_lmmodel_states_t * lm_states,
+    voice_t * voice
+) {
+    moshi_lmgen_step_voice_prompt( ctx, lmgen, state, lm_states, voice );
+    moshi_lmgen_step_audio_silence( ctx, lmgen, state, lm_states );
+    moshi_lmgen_step_text_prompt( ctx, lmgen, state, lm_states );
+    moshi_lmgen_step_audio_silence( ctx, lmgen, state, lm_states );
+}

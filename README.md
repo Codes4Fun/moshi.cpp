@@ -4,7 +4,50 @@
 A port of Kyutai's Moshi to C++ and ggml.
 * https://github.com/kyutai-labs/moshi
 
-## Quick Start (Linux)
+With additional support for NVIDIA's PersonaPlex.
+* https://github.com/nvidia/personaplex
+
+There is a separate project for Kyutai's Pocket TTS.
+* https://github.com/Codes4Fun/pocket-tts.cpp
+
+- [Status](#status)
+- [Quick Start Linux](#quick-start-linux)
+- [Quick Start Windows](#quick-start-windows)
+- [Build Dependencies](#build-dependencies)
+- [Building](#building)
+- [Models](#models)
+- [Running Demos](#running-demos)
+- [Benchmarks](#benchmarks)
+- [Design Notes](#design-notes)
+
+## Status
+
+The base library supports Kyutai's earlier Moshi models, speech to speech, text to speech, speech to text. And it supports NVIDIA's PersonaPlex is based on Moshi.
+
+PersonaPlex support progress:
+- [x] load model and quantized saving/loading
+- [x] load converted voice embeddings (pt files must be converted to safetenors)
+- [ ] voice from audio file
+- [ ] system text prompt
+
+There are multiple tools that demonstrate different components:
+* mimi-encode - demonstrates using mimi to encode different inputs to a mimi file
+* mimi-decode - demonstrates using mimi to decode and output different files
+* mimi-play - decodes mimi files and plays them through sdl
+* mimi-echo - realtime demo that allows you to hear mimi compression
+* moshi-tts - demonstrates text inputs to audio outputs
+* moshi-stt - demonstrates audio inputs to text outputs
+* moshi-sts - demonstrates audio inputs to audio (and text) outputs
+
+There are aria2c download scripts to make it easier to download tested models.
+
+The tools support quantization of the safetensor models and caching of gguf files via commmand line, `-g` to cache a gguf which is several times faster to load than the safetensors but will consume more drive space. Use `-q q8_0` or `-q q4_k` to quantize, the q4_k can take a while to convert, several minutes for some models, so it's best to use those with `-g` to save gguf versions, they also perform a bit faster. The largest models, moshika and moshiko, can run on 8gb of vram with q4_k, but they may not perform fast enough, though I was able to have a conversation with an rtx 2070 laptop running linux.
+
+### Performance and Optimizations
+
+I did create an optimization that does not exist in moshi, and that is, instead of generating an attention bias mask each frame, it generates a reusable pattern once at initialization, and reuses it like you would a lookup table. Not only does this reduce the work to just changing an offset in the pattern tensor, but it makes easier an implementation that originally involved boolean logic operations and dealing with infinities. And also for the lookup table, it only does the lookup once per transformer instead of for each transformer layer.
+
+## Quick Start Linux
 
 Make sure you have relatively recent drivers for linux.
 
@@ -37,7 +80,7 @@ Run text-to-speech:
 ./moshi-tts "Hello World!"
 ```
 
-## Quick Start (Windows)
+## Quick Start Windows
 
 Make sure you have relatively recent drivers and have the latest [msvc runtimes](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170).
 
@@ -64,25 +107,6 @@ Run text-to-speech:
 ```
 .\moshi-tts "Hello World!"
 ```
-
-## Status
-
-There are multiple tools that demonstrate different components:
-* mimi-encode - demonstrates using mimi to encode different inputs to a mimi file
-* mimi-decode - demonstrates using mimi to decode and output different files
-* mimi-play - decodes mimi files and plays them through sdl
-* mimi-echo - realtime demo that allows you to hear mimi compression
-* moshi-tts - demonstrates text inputs to audio outputs
-* moshi-stt - demonstrates audio inputs to text outputs
-* moshi-sts - demonstrates audio inputs to audio (and text) outputs
-
-There are aria2c download scripts to make it easier to download tested models.
-
-The tools support quantization of the safetensor models and caching of gguf files via commmand line, `-g` to cache a gguf which is several times faster to load than the safetensors but will consume more drive space. Use `-q q8_0` or `-q q4_k` to quantize, the q4_k can take a while to convert, several minutes for some models, so it's best to use those with `-g` to save gguf versions, they also perform a bit faster. The largest models, moshika and moshiko, can run on 8gb of vram with q4_k, but they may not perform fast enough, though I was able to have a conversation with an rtx 2070 laptop running linux.
-
-### Performance / Optimizations
-
-I did create an optimization that does not exist in moshi, and that is, instead of generating an attention bias mask each frame, it generates a reusable pattern once at initialization, and reuses it like you would a lookup table. Not only does this reduce the work to just changing an offset in the pattern tensor, but it makes easier an implementation that originally involved boolean logic operations and dealing with infinities.
 
 ## Build Dependencies
 
@@ -164,7 +188,7 @@ cmake --build .
 ```
 That will create a bin directory under build. You will need to copy over ggml libraries, and if needed the ffmpeg libraries. On windows you will need to also copy over sdl2.
 
-## Data / Weights
+## Models
 
 To make downloading models easier, I have provided aria2 input files that will automatically download and verify the downloaded files. You can install aria2 either by downloading from https://github.com/aria2/aria2/releases/tag/release-1.37.0 or using a package manager like apt:
 ```
@@ -281,10 +305,12 @@ Moshi operates at 12.5 frames per second, so anything below that would not work 
 CUDA benchmarks (beta2):
 | make   | name            | gb | driver | os    | tts fps | stt fps | sts q4_k |
 |--------|-----------------|----|--------|-------|---------|---------|----------|
+| NVIDIA | RTX 2070        |  8 | CUDA   | linux |   20.64 |   93.27 | 🟢 19.49 |
 | NVIDIA | RTX 4060        |  8 | CUDA   | linux |   19.41 |   76.63 | 🟢 17.85 |
 | NVIDIA | RTX 3060        | 12 | CUDA   | linux |   17.98 |   78.02 | 🟢 17.82 |
 | NVIDIA | RTX 2070 Laptop |  8 | CUDA   | linux |   18.84 |   83.08 | 🟢 16.89 |
 | NVIDIA | RTX 2070 Laptop |  8 | CUDA   | win10 |   16.96 |   59.56 | 🟢 14.75 |
+| NVIDIA | RTX 2070        |  8 | CUDA   | win11 |   14.71 |   48.46 | 🟢 13.77 |
 | NVIDIA | RTX 4060        |  8 | CUDA   | win11 |   14.14 |   42.37 | 🟢 13.44 |
 | NVIDIA | RTX 3060        | 12 | CUDA   | win11 |   13.80 |   42.44 | 🟢 12.79 |
 | NVIDIA | GTX 1070        |  8 | CUDA   | win11 |    8.72 |   41.81 | 🔴  6.94 |
@@ -312,7 +338,7 @@ CPU benchmarks (alpha):
 | Intel | Core i7-9750H     | CPU    |    2.54 |    5.09 |       6 |
 | Intel | Core i7-6700T     | CPU    |    1.62 |    3.04 |       4 |
 
-## Design Notes
+# Design Notes
 
 I was originally looking at designing the API after gstreamer and/or potentially integrating it with it, but I found gstreamer was rather hard to debug when things didn't work and they immediately didn't work. I still like the idea of pipes, but I decided to follow how FFmpeg connects decoders resamplers and encoders. I am not entirely set on this, as I have lots of other ideas, such as both streaming to SDL and being able to record to an mp3 file, but also in the future it may make sense for data to stay on the GPU as long as it can, so rather hiding how things are connected would make sense.
 
