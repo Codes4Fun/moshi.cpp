@@ -7,8 +7,8 @@
 
 #include "common_ggml.h"
 #include <moshi/moshi.h>
-#include "ffmpeg_helpers.h"
-#include "util.h"
+#include "common_av.h"
+#include "common_utils.h"
 
 static void print_usage(const char * program) {
     fprintf( stderr, R"(usage: %s [option(s)] input-file output.mimi

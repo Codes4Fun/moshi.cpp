@@ -9,9 +9,9 @@
 
 #include "common_ggml.h"
 #include <moshi/moshi.h>
-#include "ffmpeg_helpers.h"
-#include "sdl_helper.h"
-#include "util.h"
+#include "common_av.h"
+#include "common_sdl.h"
+#include "common_utils.h"
 
 #define SDL_OUT
 
