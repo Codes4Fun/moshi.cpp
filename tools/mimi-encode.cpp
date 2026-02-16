@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <iostream> // tts
 
+#include "common_ggml.h"
 #include <moshi/moshi.h>
 #include "ffmpeg_helpers.h"
 #include "util.h"
@@ -147,8 +148,11 @@ int main(int argc, char *argv[]) {
     Decoder decoder;
     decoder.init( input_filename );
 
+    common_ggml_t ggml;
+    init_ggml( ggml, device );
+
     // encoder
-    unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
+    unref_ptr<moshi_context_t> moshi =  moshi_alloc( ggml.backend, ggml.backend_cpu );
     printf("loading %s\n", mimi_filepath.c_str());
     unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), n_q );
     printf("done loading\n");

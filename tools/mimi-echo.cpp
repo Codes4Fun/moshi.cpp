@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <iostream> // tts
 
+#include "common_ggml.h"
 #include <moshi/moshi.h>
 #include "sdl_helper.h"
 #include "util.h"
@@ -22,10 +23,12 @@ option(s):
     exit(1);
 }
 
+static bool active = true;
+
 #include <signal.h>
 void signal_handler(int dummy) {
     printf("exit\n");
-    exit(1);
+    active = false;
 }
 
 int main(int argc, char *argv[]) {
@@ -138,7 +141,10 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
+    common_ggml_t ggml;
+    init_ggml( ggml, device );
+
+    unref_ptr<moshi_context_t> moshi =  moshi_alloc( ggml.backend, ggml.backend_cpu );
     printf("loading %s\n", mimi_filepath.c_str());
     unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), n_q );
     printf("done loading\n");
@@ -153,11 +159,7 @@ int main(int argc, char *argv[]) {
     sdl_init_frames( input_state, 3, frame_size*4 );
 
     want.freq = 24000; // Sample rate
-#ifdef USE_FLOAT
     want.format = AUDIO_F32; // Audio format
-#else
-    want.format = AUDIO_S16SYS; // Audio format
-#endif
     want.channels = 1; // Mono audio
     want.samples = frame_size;
     want.callback = sdl_capture_callback;
@@ -168,6 +170,10 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Could not open audio: %s\n", SDL_GetError());
         return 1;
     }
+    assert( want.freq == have.freq );
+    assert( want.samples == have.samples );
+    assert( want.format == have.format );
+    assert( want.channels == have.channels );
 
     AudioState output_state;
     sdl_init_frames( output_state, 3, frame_size*4 );
@@ -179,13 +185,16 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Could not open audio: %s\n", SDL_GetError());
         return 1;
     }
+    assert( want.samples == have.samples );
+    assert( want.format == have.format );
+    assert( want.channels == have.channels );
 
     SDL_PauseAudioDevice(cap_dev, 0);
     SDL_PauseAudioDevice(dev, 0);
 
     std::vector<int16_t> tokens(n_q);
-    sdl_frame_t * input_frame;
-    while ((input_frame = sdl_receive_frame( input_state, true ))) {
+    while ( active ) {
+        sdl_frame_t * input_frame = sdl_receive_frame( input_state, true );
         mimi_encode_send( encoder, (float*)input_frame->data );
         mimi_encode_receive( encoder, tokens.data() );
         sdl_free_frame( input_state, input_frame );

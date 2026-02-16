@@ -7,6 +7,7 @@
 
 #include <limits.h>
 
+#include "common_ggml.h"
 #include <moshi/moshi.h>
 #include "ffmpeg_helpers.h"
 #include "sdl_helper.h"
@@ -368,12 +369,11 @@ int main(int argc, char *argv[]) {
     // MARK: Open / Allocate
     ///////////////////////////////////////////////
 
+    common_ggml_t ggml;
+    init_ggml( ggml, device, n_threads );
+
     // context
-    unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
-    if ( n_threads > 0 && n_threads < 512 ) {
-        moshi_set_n_threads( moshi, n_threads );
-        printf( "set threads to %d\n", n_threads );
-    }
+    unref_ptr<moshi_context_t> moshi =  moshi_alloc( ggml.backend, ggml.backend_cpu );
 
     // model
     unref_ptr<moshi_lm_t> lm = moshi_lm_from_files( moshi, &stt_config,

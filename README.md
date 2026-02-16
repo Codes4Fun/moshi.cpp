@@ -26,18 +26,19 @@ There is a separate project for Kyutai's Pocket TTS.
 
 The base library supports Kyutai's earlier Moshi models, speech to speech, text to speech, speech to text. And it supports NVIDIA's PersonaPlex since it is based on Moshi.
 
-PersonaPlex support progress:
+PersonaPlex support progress (in no specific order):
 - [x] load model and quantized saving/loading
-- [x] load converted voice embeddings (pt files must be converted to safetenors)
+- [x] load converted voice embeddings (pt files must be converted to safetenors or gguf)
 - [ ] voice from audio file
 - [ ] system text prompt
 - [ ] standalone personaplex demo tool
 
-General issues:
-- [ ] refactor api to externalize ggml initialization like pocket-tts.cpp
-- [ ] refactor demo tools around common library
-- [ ] wrap sentencepiece into it's own dynamic library
-- [ ] investigate timing issue with sdl
+General issues (in no specific order):
+- [x] refactor api to externalize ggml initialization like pocket-tts.cpp
+- [ ] refactor demo tools around common library.
+- [ ] wrap sentencepiece into it's own dynamic library or externalize it.
+- [ ] investigate timing issue with sdl, integrate diagnosis in mimi-echo.
+- [ ] sync up moshi.cpp and pocket-tts.cpp code bases.
 
 There are multiple tools that demonstrate different components:
 * mimi-encode - demonstrates using mimi to encode different inputs to a mimi file

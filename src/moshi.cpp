@@ -48,8 +48,6 @@ struct moshi_context_t {
     ggml_backend * backend_cpu;
     own_ptr<ScratchContext> scratch_cpu;
     own_ptr<ScratchContext> scratch;
-    ggml_backend_set_n_threads_t set_n_threads;
-    ggml_backend_set_n_threads_t set_n_threads_cpu;
 };
 
 struct mimi_codec_t {
@@ -97,83 +95,22 @@ struct tokenizer_t {
 
 // MARK: Moshi Context
 
-static bool ggml_backends_loaded = false;
-
-static void moshi_alloc( moshi_context_t * moshi, ggml_backend * backend ) {
+moshi_context_t * moshi_alloc( ggml_backend * backend, ggml_backend * backend_cpu ) {
     assert( backend );
+    assert( backend_cpu );
+    auto dev_cpu = ggml_backend_get_device( backend_cpu );
+    assert ( ggml_backend_dev_type( dev_cpu ) == GGML_BACKEND_DEVICE_TYPE_CPU );
 
-    auto dev = ggml_backend_get_device( backend );
-    auto reg = ggml_backend_dev_backend_reg( dev );
-    auto set_n_threads = (ggml_backend_set_n_threads_t)
-        ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads");
-    ggml_backend * backend_cpu;
-    ggml_backend_set_n_threads_t set_n_threads_cpu;
-    if ( ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_CPU ) {
-        backend_cpu = backend;
-        set_n_threads_cpu = set_n_threads;
-    } else {
-        backend_cpu = ggml_backend_init_by_type( GGML_BACKEND_DEVICE_TYPE_CPU, NULL );
-        if ( ! backend_cpu ) {
-            fprintf( stderr, "error: failed to initialize cpu device.\n" );
-            exit(1);
-        }
-        auto dev_cpu = ggml_backend_get_device( backend_cpu );
-        auto reg_cpu = ggml_backend_dev_backend_reg( dev_cpu );
-        set_n_threads_cpu = (ggml_backend_set_n_threads_t)
-            ggml_backend_reg_get_proc_address(reg_cpu, "ggml_backend_set_n_threads");
-    }
-    auto dev_name = ggml_backend_dev_name( dev );
-    printf( "using device: \"%s\"\n", dev_name );
-
+    auto moshi = new moshi_context_t;
     moshi->backend_cpu = backend_cpu;
     moshi->backend = backend;
-    moshi->set_n_threads = set_n_threads;
-    moshi->set_n_threads_cpu = set_n_threads_cpu;
     moshi->scratch_cpu = new ScratchContext( 256, backend_cpu );
     moshi->scratch = new ScratchContext( 256, backend );
-}
-
-static void moshi_alloc( moshi_context_t * moshi, const char * device ) {
-    if ( ! ggml_backends_loaded ) {
-        ggml_backend_load_all();
-        ggml_backends_loaded = true;
-    }
-    ggml_backend * backend;
-    if ( device ) {
-        backend = ggml_backend_init_by_name( device, NULL );
-    } else {
-        backend = ggml_backend_init_best();
-    }
-    if ( ! backend ) {
-        fprintf( stderr, "error: failed to initialize device.\n" );
-        exit(1);
-    }
-    moshi_alloc( moshi, backend );
-}
-
-moshi_context_t * moshi_alloc( ggml_backend * backend ) {
-    auto moshi = new moshi_context_t;
-    moshi_alloc( moshi, backend );
-    return moshi;
-}
-
-moshi_context_t * moshi_alloc( const char * device ) {
-    auto moshi = new moshi_context_t;
-    moshi_alloc( moshi, device );
     return moshi;
 }
 
 void unref( moshi_context_t * moshi ) {
     delete moshi;
-}
-
-void moshi_set_n_threads( moshi_context_t * moshi, int n ) {
-    if ( moshi->set_n_threads ) {
-        moshi->set_n_threads( moshi->backend, n );
-    }
-    if ( moshi->set_n_threads_cpu && moshi->backend != moshi->backend_cpu ) {
-        moshi->set_n_threads_cpu( moshi->backend_cpu, n );
-    }
 }
 
 // MARK: Mimi Codec

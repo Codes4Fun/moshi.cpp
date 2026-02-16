@@ -96,7 +96,7 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
             assert( config->depformer_pos_emb == "none" );
         }
         lm_depformer->rope_max_period = rope_max_period;
-        lm_depformer->dim_per_head = (int)config->depformer_dim / config->depformer_num_heads;
+        lm_depformer->dim_per_head = (int)( config->depformer_dim / config->depformer_num_heads );
         for ( int64_t i = 0; i < config->depformer_num_layers; i++ ) {
             auto layer = new moshi_streaming_transformer_layer_t{
                 /*.norm1_rms=*/ new moshi_rms_norm_t{ /*.eps=*/ 1e-08f },

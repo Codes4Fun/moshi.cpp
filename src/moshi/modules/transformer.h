@@ -1209,7 +1209,7 @@ ggml_tensor * moshi_streaming_transformer(
 
     x = moshi_streaming_transformer( ctx, m, states, offset, attn_bias, &tsemb, indices, x );
 
-    states->offset += T;
+    states->offset += (int)T;
 
     return x;
 }
@@ -1312,7 +1312,7 @@ ggml_tensor * moshi_streaming_transformer_graph(
         states->graph.ctx->alloc();
     }
 
-    moshi_streaming_transformer_graph_step( ctx, m, states, T );
+    moshi_streaming_transformer_graph_step( ctx, m, states, (int)T );
 
     // cpy x
     auto x_cpy = ggml_cpy( ctx, x, states->graph.x );

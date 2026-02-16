@@ -25,11 +25,8 @@
 
 struct moshi_context_t;
 
-MOSHI_API moshi_context_t * moshi_alloc( ggml_backend * backend );
-MOSHI_API moshi_context_t * moshi_alloc( const char * device );
+MOSHI_API moshi_context_t * moshi_alloc( ggml_backend * backend, ggml_backend * backend_cpu );
 MOSHI_API void unref( moshi_context_t * moshi );
-
-MOSHI_API void moshi_set_n_threads( moshi_context_t * moshi, int n );
 
 // MARK: Mimi Codec
 

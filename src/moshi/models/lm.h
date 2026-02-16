@@ -664,7 +664,7 @@ std::tuple<ggml_tensor*, ggml_tensor*> moshi_lmmodel_forward_text_build(
     ) {
     auto input = moshi_lmmodel_text_token_embed_build( ctx, lm, &state->embed, sum_condition );
 
-    state->transformer_T = input->ne[1];
+    state->transformer_T = (int)input->ne[1];
     auto transformer_out = moshi_streaming_transformer_graph_build( ctx,
         lm->transformer, state->transformer, input );
 
@@ -1029,8 +1029,8 @@ void moshi_lmgen_step_voice_prompt(
 
         // note that dimensions inverted
         assert( voice->prompt_cache->type == GGML_TYPE_I32 );
-        int cache_height = state->cache.size(); // time
-        int cache_width = state->cache[0].size();
+        int cache_height = (int)state->cache.size(); // time
+        int cache_width = (int)state->cache[0].size();
         assert( cache_height == voice->prompt_cache->ne[0] );
         assert( cache_width == voice->prompt_cache->ne[1] );
         assert( voice->prompt_cache->ne[2] == 1 );

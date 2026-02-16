@@ -290,7 +290,7 @@ void mimi_encode(
 
         auto emb = moshi_seanet_encoder( gctx, states->encoder, mimi->encoder, x );
 
-        states->encoder_graph.T = emb->ne[0]; // projected transposes this
+        states->encoder_graph.T = (int)emb->ne[0]; // projected transposes this
         emb = moshi_projected_transformer_graph_build( gctx,
             states->encoder_transformer, mimi->encoder_transformer, emb );
 

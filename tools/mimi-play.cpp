@@ -4,6 +4,7 @@
 #include <math.h>
 #include <assert.h>
 
+#include "common_ggml.h"
 #include <moshi/moshi.h>
 #include "sdl_helper.h"
 #include "util.h"
@@ -152,8 +153,11 @@ int main(int argc, char *argv[]) {
         exit( 1 );
     }
 
+    common_ggml_t ggml;
+    init_ggml( ggml, device );
+
     // decoder
-    unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
+    unref_ptr<moshi_context_t> moshi =  moshi_alloc( ggml.backend, ggml.backend_cpu );
     printf("loading %s\n", mimi_filepath.c_str());
     unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi, mimi_filepath.c_str(), n_q );
     printf("done loading\n");

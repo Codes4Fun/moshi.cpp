@@ -4,6 +4,7 @@
 #include <math.h>
 #include <assert.h>
 
+#include "common_ggml.h"
 #include <moshi/moshi.h>
 #include "ffmpeg_helpers.h"
 #include "sdl_helper.h"
@@ -445,12 +446,11 @@ int main(int argc, char *argv[]) {
     srand( seed );
     printf( "seed: %d\n", seed );
 
+    common_ggml_t ggml;
+    init_ggml( ggml, device, n_threads );
+
     // context
-    unref_ptr<moshi_context_t> moshi =  moshi_alloc( device );
-    if ( n_threads > 0 && n_threads < 512 ) {
-        moshi_set_n_threads( moshi, n_threads );
-        printf( "set threads to %d\n", n_threads );
-    }
+    unref_ptr<moshi_context_t> moshi =  moshi_alloc( ggml.backend, ggml.backend_cpu );
 
     printf( "loading...\n" );
     auto load_start = ggml_time_ms();
@@ -573,11 +573,7 @@ int main(int argc, char *argv[]) {
         SDL_AudioSpec want, have;
 
         want.freq = 24000; // Sample rate
-#ifdef USE_FLOAT
         want.format = AUDIO_F32; // Audio format
-#else
-        want.format = AUDIO_S16SYS; // Audio format
-#endif
         want.channels = 1; // Mono audio
         want.samples = frame_size;
         want.callback = sdl_capture_callback;
@@ -588,6 +584,10 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Could not open audio: %s\n", SDL_GetError());
             return 1;
         }
+        assert( want.freq == have.freq );
+        assert( want.format == have.format );
+        assert( want.channels == have.channels );
+        assert( want.samples == have.samples );
 
         sdl_init_frames( output_state, 3, frame_size*4 );
 
@@ -598,6 +598,10 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Could not open audio: %s\n", SDL_GetError());
             return 1;
         }
+        assert( want.freq == have.freq );
+        assert( want.format == have.format );
+        assert( want.channels == have.channels );
+        assert( want.samples == have.samples );
     }
 
     /////////////////////////

@@ -7,8 +7,6 @@
 #include <SDL2/SDL.h>
 #endif
 
-#define USE_FLOAT
-
 struct sdl_frame_t {
     uint8_t * data;
     int nb_bytes;
@@ -25,8 +23,6 @@ struct AudioState {
     sdl_frame_t * free = NULL;
     sdl_frame_t * head = NULL;
     sdl_frame_t * tail = NULL;
-
-    bool log = false;
 
     AudioState() {
         fifo_mutex = SDL_CreateMutex();
@@ -124,19 +120,8 @@ void sdl_audio_callback(void *userdata, Uint8 *stream, int len) {
     }
 }
 
-#ifdef USE_FLOAT
 void sdl_capture_callback(void *userdata, Uint8 *stream, int len) {
     AudioState  & state = *(AudioState *)userdata;
-    float max_amplitude = 0;
-    auto samples = (float *)stream;
-    for (int i = 0; i < len / 4; ++i) {
-        float sample_value = samples[i];
-        samples[i] *= 0.1f;
-        sample_value = fabsf(sample_value);
-        if (sample_value > max_amplitude) {
-            max_amplitude = sample_value;
-        }
-    }
 
     sdl_frame_t * frame = sdl_get_frame( state, false );
     if ( frame ) {
@@ -144,32 +129,5 @@ void sdl_capture_callback(void *userdata, Uint8 *stream, int len) {
         memcpy( frame->data, stream, len );
         sdl_send_frame( state, frame );
     }
-
-    if ( state.log ) {
-        if ( frame ) {
-            printf("\rMax Amplitude: %f      ", max_amplitude);
-        } else {
-            printf("\rno frame: %f           ", max_amplitude);
-
-        }
-        fflush(stdout);
-    }
 }
-#else
-void sdl_capture_callback(void *userdata, Uint8 *stream, int len) {
-    int max_amplitude = 0;
-    const int16_t *samples = (const int16_t *)stream;
-    for (int i = 0; i < len / 2; ++i) {
-        int sample_value = samples[i];
-        if (abs(sample_value) > max_amplitude) {
-            max_amplitude = abs(sample_value);
-        }
-    }
-
-    if ( state.log ) {
-        printf("\rMax Amplitude: %d      ", max_amplitude);
-        fflush(stdout);
-    }
-}
-#endif
 
