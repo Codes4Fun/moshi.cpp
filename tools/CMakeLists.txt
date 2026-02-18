@@ -53,6 +53,11 @@ foreach(file ${CONFIG_FILES_TO_COPY})
 endforeach()
 setup_rpath(moshi-sts)
 
+add_executable(personaplex personaplex.cpp)
+target_link_libraries(personaplex PRIVATE moshi ${GGML_LIBRARIES} ${FFMPEG_LIBRARIES} SDL2::SDL2 ${SentencePiece_LIBRARIES})
+target_include_directories(personaplex PRIVATE ${GGML_INCLUDE_DIRS} ${SentencePiece_INCLUDE_DIRS} ${FFMPEG_INCLUDE_DIRS})
+setup_rpath(personaplex)
+
 set(ARIA2_FILES_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ARIA2_FILES_DEST_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 file(GLOB ARIA2_FILES_TO_COPY

@@ -22,22 +22,21 @@ options:
   -d NAME,  --device NAME      use named hardware.
             --threads N        number of CPU threads.
 
-  -r PATH,  --model-root PATH  path to where all kyutai models are stored and
-                               replaces MODEL_CACHE environment variable. the
-                               models at root are in subdirectories of
-                               'organization/model'
+  -r PATH,  --model-root PATH  path to where all models are stored and replaces
+                               MODEL_CACHE environment variable. the models at
+                               root are in subdirectories of 'publisher/model'
   -m PATH,  --model PATH       path to where model is, can be relative to the
                                MODEL_CACHE environment variable, or program
                                directory, or working directory. by default is
-                               'Codes4Fun/moshika-q4_k-GGUF'
+                               'Codes4Fun/personaplex-7b-v1-q4_k-GGUF'
   -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
   -g,       --gguf-caching     loads gguf if exists, saves gguf if it does not.
                                model is saved alongside the original
                                safetensors file.
 
-  -c N,     --context N        default: 3000, lowering reduces vram usage but
-                               reduces effective conversation time. higher does
-                               not improve effective conversation time.
+  -c N,     --context N        default: auto adjusted to device memory with a
+                               max of 3000. lowering values reduces vram usage
+                               but reduces effective conversation time.
   -s N,     --seed N           seed value.
   -t N,     --temperature N    consistency vs creativity, default 0.8
   -b        --bench            benchmark mode that disables sdl io and ends
@@ -95,9 +94,8 @@ int main(int argc, char *argv[]) {
 
     const char * model_cache = getenv("MODEL_CACHE");
     std::string model_root = model_cache? model_cache : "";
-    std::string model_path = "Codes4Fun/moshika-q4_k-GGUF/";
+    std::string model_path = "Codes4Fun/personaplex-7b-v1-q4_k-GGUF/";
     bool model_path_set = false;
-    bool personaplex = false;
     const char * quant = NULL;
     bool gguf_caching = false;
 
@@ -156,7 +154,6 @@ int main(int argc, char *argv[]) {
             }
             model_path = argv[++i];
             model_path_set = true;
-            personaplex = model_path.find("personaplex") != std::string::npos;
             continue;
         }
         if (arg == "-q" || arg == "--quantize") {
@@ -251,9 +248,10 @@ int main(int argc, char *argv[]) {
 
     common_ggml_t ggml;
     init_ggml( ggml, device, n_threads );
-    const int memory_base = personaplex? 4990 : 4618;
+    printf("free memory: %d MiB\n", ggml.memory_free_mb );
+    const int memory_base = 4990;
     const int memory_ctx = 758;
-    const int memory_min = personaplex? 5368 : 4996;
+    const int memory_min = 5368;
     if ( ggml.memory_free_mb < memory_min ) {
         fprintf(stderr, "warning: might fail due to low memory!\n");
     } else if ( context == -1 && ggml.memory_free_mb < 8446 ) {
@@ -285,12 +283,12 @@ int main(int argc, char *argv[]) {
     } else if ( ! model_path_set ) {
         // check defaults
         std::vector<std::string> paths;
-        paths.push_back( model_root + "Codes4Fun/moshika-q4_k-GGUF/" );
-        paths.push_back( program_path + "Codes4Fun/moshika-q4_k-GGUF/" );
-        paths.push_back( "Codes4Fun/moshika-q4_k-GGUF/" );
-        paths.push_back( model_root + "kyutai/moshika-pytorch-bf16/" );
-        paths.push_back( program_path + "kyutai/moshika-pytorch-bf16/" );
-        paths.push_back( "kyutai/moshika-pytorch-bf16/" );
+        paths.push_back( model_root + "Codes4Fun/personaplex-7b-v1-q4_k-GGUF/" );
+        paths.push_back( program_path + "Codes4Fun/personaplex-7b-v1-q4_k-GGUF/" );
+        paths.push_back( "Codes4Fun/personaplex-7b-v1-q4_k-GGUF/" );
+        paths.push_back( model_root + "nvidia/personaplex-7b-v1/" );
+        paths.push_back( program_path + "nvidia/personaplex-7b-v1/" );
+        paths.push_back( "nvidia/personaplex-7b-v1/" );
         for ( auto & path : paths ) {
             check_arg_path( path, found_file, found_dir );
             if ( found_dir ) {
@@ -327,23 +325,12 @@ int main(int argc, char *argv[]) {
     // default config
     moshi_config_t config;
     std::string config_filepath;
-    if ( personaplex ) {
-        config_filepath = model_path + "personaplex-config.json";
+    config_filepath = model_path + "personaplex-config.json";
+    if ( ! file_exists( config_filepath.c_str() ) ) {
+        config_filepath = program_path + "personaplex-config.json";
         if ( ! file_exists( config_filepath.c_str() ) ) {
-            config_filepath = program_path + "personaplex-config.json";
-            if ( ! file_exists( config_filepath.c_str() ) ) {
-                fprintf( stderr, "error: failed to find a config.json\n" );
-                exit(1);
-            }
-        }
-    } else {
-        config_filepath = model_path + "config.json";
-        if ( ! file_exists( config_filepath.c_str() ) ) {
-            config_filepath = program_path + "moshi-config.json";
-            if ( ! file_exists( config_filepath.c_str() ) ) {
-                fprintf( stderr, "error: failed to find a config.json\n" );
-                exit(1);
-            }
+            fprintf( stderr, "error: failed to find a config.json\n" );
+            exit(1);
         }
     }
 
@@ -369,6 +356,7 @@ int main(int argc, char *argv[]) {
         // files can be deleted or not downloaded to save memory
         bool found = false;
         std::vector<std::string> paths = {
+            "nvidia/personaplex-7b-v1/tokenizer-e351c8d8-checkpoint125.safetensors",
             "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors",
             "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors",
             "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors",
@@ -376,6 +364,7 @@ int main(int argc, char *argv[]) {
             "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors",
         };
         if ( model_root.size() ) {
+            paths.push_back( model_root + "nvidia/personaplex-7b-v1/tokenizer-e351c8d8-checkpoint125.safetensors" );
             paths.push_back( model_root + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
             paths.push_back( model_root + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
             paths.push_back( model_root + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
@@ -383,6 +372,7 @@ int main(int argc, char *argv[]) {
             paths.push_back( model_root + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
         }
         if ( program_path.size() ) {
+            paths.push_back( program_path + "nvidia/personaplex-7b-v1/tokenizer-e351c8d8-checkpoint125.safetensors" );
             paths.push_back( program_path + "kyutai/tts-1.6b-en_fr/tokenizer-e351c8d8-checkpoint125.safetensors" );
             paths.push_back( program_path + "kyutai/tts-0.75b-en-public/tokenizer-e351c8d8-checkpoint125.safetensors" );
             paths.push_back( program_path + "kyutai/stt-1b-en_fr-candle/mimi-pytorch-e351c8d8@125.safetensors" );
@@ -409,14 +399,17 @@ int main(int argc, char *argv[]) {
         if ( config.tokenizer_name == "tokenizer_spm_32k_3.model" ) {
             // the file is the same for several models
             std::vector<std::string> paths = {
+                "nvidia/personaplex-7b-v1/tokenizer_spm_32k_3.model",
                 "kyutai/moshika-pytorch-bf16/tokenizer_spm_32k_3.model",
                 "kyutai/moshiko-pytorch-bf16/tokenizer_spm_32k_3.model"
             };
             if ( model_root.size() ) {
+                paths.push_back( model_root + "nvidia/personaplex-7b-v1/tokenizer_spm_32k_3.model" );
                 paths.push_back( model_root + "kyutai/moshika-pytorch-bf16/tokenizer_spm_32k_3.model" );
                 paths.push_back( model_root + "kyutai/moshiko-pytorch-bf16/tokenizer_spm_32k_3.model" );
             }
             if ( program_path.size() ) {
+                paths.push_back( program_path + "nvidia/personaplex-7b-v1/tokenizer_spm_32k_3.model" );
                 paths.push_back( program_path + "kyutai/moshika-pytorch-bf16/tokenizer_spm_32k_3.model" );
                 paths.push_back( program_path + "kyutai/moshiko-pytorch-bf16/tokenizer_spm_32k_3.model" );
             }
@@ -436,7 +429,7 @@ int main(int argc, char *argv[]) {
 
     bool personaplex_voice_embedding = false;
     bool personaplex_voice_mimi = false;
-    if ( personaplex && personaplex_voice_filepath.size() ) {
+    if ( personaplex_voice_filepath.size() ) {
         if ( ! file_exists( personaplex_voice_filepath.c_str() ) ) {
             std::vector<std::string> paths;
             if ( personaplex_voice_filepath.size() == 5 ) {
@@ -536,21 +529,12 @@ int main(int argc, char *argv[]) {
         config.cross_attention );
 
     // codec
-    int num_audio_codebooks = (int)( config.n_q - config.dep_q );
-    if ( config.dep_q >= config.n_q )
-        num_audio_codebooks = (int) config.dep_q;
-    if ( personaplex )
-        num_audio_codebooks = 8;
+    int num_audio_codebooks = 8; // personaplex hard codes this
     unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi,
         mimi_filepath.c_str(),
         num_audio_codebooks );
     float frame_rate = mimi_frame_rate( codec );
     int frame_size = mimi_frame_size( codec );
-
-    //const int delay_steps = (int)( tts_config.tts_config.audio_delay * frame_rate );
-    //assert( delay_steps == 16 );
-     //we invasively put the on_audio_hook in lm, so we need to copy delay_steps
-    //moshi_lm_set_delay_steps( lm, delay_steps );
 
     // model
     moshi_lm_load( lm );
@@ -580,80 +564,78 @@ int main(int argc, char *argv[]) {
         resampler.init();
     }
 
-    if ( personaplex ) {
-        if ( personaplex_voice_filepath.size() ) {
-            if ( personaplex_voice_embedding ) {
-                moshi_lm_personaplex_load_voice( moshi, gen,
-                    personaplex_voice_filepath.c_str() );
-                printf("using voice embedding: %s\n", personaplex_voice_filepath.c_str() );
-            } else if ( personaplex_voice_mimi ) {
-                auto f = fopen( personaplex_voice_filepath.c_str(), "rb" );
-                if ( ! f ) {
-                    fprintf( stderr, "error: failed to open \"%s\"\n", "temp.mimi" );
-                    exit(1);
+    if ( personaplex_voice_filepath.size() ) {
+        if ( personaplex_voice_embedding ) {
+            moshi_lm_personaplex_load_voice( moshi, gen,
+                personaplex_voice_filepath.c_str() );
+            printf("using voice embedding: %s\n", personaplex_voice_filepath.c_str() );
+        } else if ( personaplex_voice_mimi ) {
+            auto f = fopen( personaplex_voice_filepath.c_str(), "rb" );
+            if ( ! f ) {
+                fprintf( stderr, "error: failed to open \"%s\"\n", "temp.mimi" );
+                exit(1);
+            }
+            int i32;
+            auto n = fread( &i32, 4, 1, f );
+            assert( n == 1 );
+            assert( i32 == 0x494d494d );
+            n = fread( &i32, 4, 1, f );
+            assert( n == 1 );
+            assert( i32 == num_audio_codebooks );
+            std::deque<std::vector<int16_t>> audio_prompt;
+            while ( true ) {
+                audio_prompt.push_back({});
+                auto & audio_codes = audio_prompt.back();
+                audio_codes.resize( num_audio_codebooks );
+                n = fread( audio_codes.data(), num_audio_codebooks * 2, 1, f );
+                if ( n != 1 ) {
+                    audio_prompt.pop_back();
+                    break;
                 }
-                int i32;
-                auto n = fread( &i32, 4, 1, f );
-                assert( n == 1 );
-                assert( i32 == 0x494d494d );
-                n = fread( &i32, 4, 1, f );
-                assert( n == 1 );
-                assert( i32 == num_audio_codebooks );
-                std::deque<std::vector<int16_t>> audio_prompt;
-                while ( true ) {
-                    audio_prompt.push_back({});
-                    auto & audio_codes = audio_prompt.back();
-                    audio_codes.resize( num_audio_codebooks );
-                    n = fread( audio_codes.data(), num_audio_codebooks * 2, 1, f );
-                    if ( n != 1 ) {
-                        audio_prompt.pop_back();
-                        break;
-                    }
-                }
-                fclose( f );
-                moshi_lm_personaplex_audio_prompt( gen, audio_prompt );
-                mimi_encode_reset( encoder );
-                printf("using audio prompt: %s\n", personaplex_voice_filepath.c_str() );
-            } else {
-                // mimi encode audio file
-                Decoder voice_decoder;
-                voice_decoder.init( personaplex_voice_filepath.c_str() );
-                AVChannelLayout mono;
-                av_channel_layout_default( &mono, 1 );
-                Resampler voice_resampler;
-                voice_resampler.set_input( voice_decoder.codec_ctx );
-                voice_resampler.set_output( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
-                voice_resampler.init();
-                std::deque<std::vector<int16_t>> audio_prompt;
-                AVFrame * dec_frame;
-                while ( ( dec_frame = voice_decoder.frame() ) ) {
-                    auto frame = voice_resampler.frame( dec_frame );
-                    while ( frame ) {
-                        audio_prompt.push_back({});
-                        auto & audio_codes = audio_prompt.back();
-                        audio_codes.resize( num_audio_codebooks );
-                        mimi_encode_send( encoder, (float*)frame->data[0] );
-                        mimi_encode_receive( encoder, audio_codes.data() );
-                        frame = voice_resampler.frame();
-                    }
-                }
-                auto frame = voice_resampler.flush( true ); // inject silence
-                if ( frame ) {
+            }
+            fclose( f );
+            moshi_lm_personaplex_audio_prompt( gen, audio_prompt );
+            mimi_encode_reset( encoder );
+            printf("using audio prompt: %s\n", personaplex_voice_filepath.c_str() );
+        } else {
+            // mimi encode audio file
+            Decoder voice_decoder;
+            voice_decoder.init( personaplex_voice_filepath.c_str() );
+            AVChannelLayout mono;
+            av_channel_layout_default( &mono, 1 );
+            Resampler voice_resampler;
+            voice_resampler.set_input( voice_decoder.codec_ctx );
+            voice_resampler.set_output( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
+            voice_resampler.init();
+            std::deque<std::vector<int16_t>> audio_prompt;
+            AVFrame * dec_frame;
+            while ( ( dec_frame = voice_decoder.frame() ) ) {
+                auto frame = voice_resampler.frame( dec_frame );
+                while ( frame ) {
                     audio_prompt.push_back({});
                     auto & audio_codes = audio_prompt.back();
                     audio_codes.resize( num_audio_codebooks );
                     mimi_encode_send( encoder, (float*)frame->data[0] );
                     mimi_encode_receive( encoder, audio_codes.data() );
+                    frame = voice_resampler.frame();
                 }
-                moshi_lm_personaplex_audio_prompt( gen, audio_prompt );
-                mimi_encode_reset( encoder );
-                printf("using audio prompt: %s\n", personaplex_voice_filepath.c_str() );
             }
+            auto frame = voice_resampler.flush( true ); // inject silence
+            if ( frame ) {
+                audio_prompt.push_back({});
+                auto & audio_codes = audio_prompt.back();
+                audio_codes.resize( num_audio_codebooks );
+                mimi_encode_send( encoder, (float*)frame->data[0] );
+                mimi_encode_receive( encoder, audio_codes.data() );
+            }
+            moshi_lm_personaplex_audio_prompt( gen, audio_prompt );
+            mimi_encode_reset( encoder );
+            printf("using audio prompt: %s\n", personaplex_voice_filepath.c_str() );
         }
-        if ( personaplex_system_prompt.size() ) {
-            moshi_lm_personaplex_system_prompt( moshi, gen, tok,
-                personaplex_system_prompt.c_str() );
-        }
+    }
+    if ( personaplex_system_prompt.size() ) {
+        moshi_lm_personaplex_system_prompt( moshi, gen, tok,
+            personaplex_system_prompt.c_str() );
     }
 
     /////////////////////////

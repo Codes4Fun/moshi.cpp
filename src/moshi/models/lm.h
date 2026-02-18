@@ -697,7 +697,7 @@ std::tuple<ggml_tensor*, ggml_tensor*> moshi_lmmodel_forward_embedding(
         moshi_lmmodel_states_t * state,
         ggml_tensor * input
     ) {
-    auto transformer_out = moshi_streaming_transformer_graph( ctx,
+    auto transformer_out = moshi_streaming_transformer( ctx,
         lm->transformer, state->transformer, input );
 
     if ( lm->out_norm )

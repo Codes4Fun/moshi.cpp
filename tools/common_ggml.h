@@ -5,9 +5,18 @@
 #include <ggml-cpu.h>
 
 struct common_ggml_t {
+    ggml_backend_dev_t dev;
     ggml_backend * backend;
     ggml_backend * backend_cpu;
+    size_t memory_free;
+    int memory_free_mb;
 };
+
+size_t device_memory_free( ggml_backend_dev_t dev ) {
+    ggml_backend_dev_props props;
+    ggml_backend_dev_get_props(dev, &props);
+    return props.memory_free;
+}
 
 void init_ggml( common_ggml_t & ggml, const char * device = NULL, int n_threads = 0 ) {
     bool set_threads = false;
@@ -53,14 +62,19 @@ void init_ggml( common_ggml_t & ggml, const char * device = NULL, int n_threads 
         }
     }
 
+    auto memory_free = device_memory_free( dev );
+
     auto dev_name = ggml_backend_dev_name( dev );
     printf( "using device: \"%s\"\n", dev_name );
     if ( set_threads ) {
         printf( "with threads: %d\n", n_threads );
     }
 
+    ggml.dev = dev;
     ggml.backend = backend;
     ggml.backend_cpu = backend_cpu;
+    ggml.memory_free = memory_free;
+    ggml.memory_free_mb = (int)( memory_free / 1024 / 1024 );
 }
 
 
