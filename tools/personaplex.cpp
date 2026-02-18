@@ -252,11 +252,12 @@ int main(int argc, char *argv[]) {
     const int memory_base = 4990;
     const int memory_ctx = 758;
     const int memory_min = 5368;
+    const int memory_spec = 7264;
     if ( ggml.memory_free_mb < memory_min ) {
         fprintf(stderr, "warning: might fail due to low memory!\n");
-    } else if ( context == -1 && ggml.memory_free_mb < 8446 ) {
+    } else if ( context == -1 && ggml.memory_free_mb - 100 < memory_spec ) {
         fprintf( stderr, "auto adjusting context to fit in memory, use context option to override.\n" );
-        context = (ggml.memory_free_mb - memory_base - 100) * 1000 / memory_ctx;
+        context = (ggml.memory_free_mb - 100 - memory_base) * 1000 / memory_ctx;
         fprintf( stderr, "context: %d\n", context );
     }
 
