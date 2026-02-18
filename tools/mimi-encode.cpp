@@ -166,6 +166,7 @@ int main(int argc, char *argv[]) {
     auto f = fopen( output_filename, "wb" );
     if ( ! f ) {
         fprintf( stderr, "error: failed to open \"%s\"\n", output_filename );
+        exit(1);
     }
     auto n = fwrite( "MIMI", 4, 1, f );
     assert( n == 1 );
