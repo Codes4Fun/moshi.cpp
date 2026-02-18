@@ -46,7 +46,9 @@ options:
             --delay            delay the audio file in frames (12.5 fps)
 
 personaplex options:
-  -v NAME,  --voice NAME       either a filepath to a safetensor or one of:
+  -p PROMPT --prompt PROMPT    system prompt
+  -v NAME,  --voice NAME       either a filepath to an audio file, a saved
+                               embedding as safetensors, gguf, or of defaults:
                                     NATF0
                                     NATF1
                                     NATF2
@@ -109,6 +111,7 @@ int main(int argc, char *argv[]) {
     int input_delay = 0;
 
     std::string personaplex_voice_filepath = "";
+    std::string personaplex_system_prompt = "";
 
     //////////////////////
     // MARK: Parse Args
@@ -221,6 +224,14 @@ int main(int argc, char *argv[]) {
             personaplex_voice_filepath = argv[++i];
             continue;
         }
+        if (arg == "-p" || arg == "--prompt") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires quoted text\n", argv[i] );
+                exit(1);
+            }
+            personaplex_system_prompt = argv[++i];
+            continue;
+        }
         if (arg[0] == '-') {
             fprintf( stderr, "error: unrecognized option \"%s\"\n", argv[i] );
             exit(1);
@@ -258,7 +269,7 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
         }
-    } else if ( ! model_path_set) {
+    } else if ( ! model_path_set ) {
         // check defaults
         std::vector<std::string> paths;
         paths.push_back( model_root + "Codes4Fun/moshika-q4_k-GGUF/" );
@@ -410,35 +421,43 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if ( personaplex && personaplex_voice_filepath.size()
-    && ! file_exists( personaplex_voice_filepath.c_str() ) ) {
-        std::vector<std::string> paths;
-        if ( personaplex_voice_filepath.size() == 5 ) {
-            std::string expanded_filepath = model_path + "voices/" + personaplex_voice_filepath;
-            paths.push_back( expanded_filepath + ".gguf" );
-            paths.push_back( expanded_filepath + ".safetensors" );
-        }
-        paths.push_back( model_path + personaplex_voice_filepath );
-        if ( model_root.size() ) {
-            paths.push_back( model_root + personaplex_voice_filepath );
-        }
-        if ( program_path.size() ) {
-            paths.push_back( program_path + personaplex_voice_filepath );
-        }
+    bool personaplex_voice_embedding = false;
+    bool personaplex_voice_mimi = false;
+    if ( personaplex && personaplex_voice_filepath.size() ) {
+        if ( ! file_exists( personaplex_voice_filepath.c_str() ) ) {
+            std::vector<std::string> paths;
+            if ( personaplex_voice_filepath.size() == 5 ) {
+                std::string expanded_filepath = model_path + "voices/" + personaplex_voice_filepath;
+                paths.push_back( expanded_filepath + ".gguf" );
+                paths.push_back( expanded_filepath + ".safetensors" );
+            }
+            paths.push_back( model_path + personaplex_voice_filepath );
+            if ( model_root.size() ) {
+                paths.push_back( model_root + personaplex_voice_filepath );
+            }
+            if ( program_path.size() ) {
+                paths.push_back( program_path + personaplex_voice_filepath );
+            }
 
-        bool found = false;
-        for ( auto & path : paths ) {
-            if ( file_exists( path.c_str() ) ) {
-                personaplex_voice_filepath = path;
-                found = true;
-                break;
+            bool found = false;
+            for ( auto & path : paths ) {
+                if ( file_exists( path.c_str() ) ) {
+                    personaplex_voice_filepath = path;
+                    found = true;
+                    break;
+                }
+            }
+
+            if ( ! found ) {
+                fprintf( stderr, "error: failed to find voice file \"%s\"\n", personaplex_voice_filepath.c_str() );
+                exit(1);
             }
         }
-
-        if ( ! found ) {
-            fprintf( stderr, "error: failed to find voice file \"%s\"\n", personaplex_voice_filepath.c_str() );
-            exit(1);
-        }
+        const char * ext = get_ext( personaplex_voice_filepath.c_str() );
+        if ( strcmp( ext, ".gguf" ) == 0 || strcmp( ext, ".safetensors" ) == 0 )
+            personaplex_voice_embedding = true;
+        else if ( strcmp( ext, ".mimi" ) == 0 )
+            personaplex_voice_mimi = true;
     }
 
     // MARK: Loading
@@ -507,14 +526,14 @@ int main(int argc, char *argv[]) {
         config.cross_attention );
 
     // codec
-    int num_codebooks = (int)( config.n_q - config.dep_q );
+    int num_audio_codebooks = (int)( config.n_q - config.dep_q );
     if ( config.dep_q >= config.n_q )
-        num_codebooks = (int) config.dep_q;
+        num_audio_codebooks = (int) config.dep_q;
     if ( personaplex )
-        num_codebooks = 8;
+        num_audio_codebooks = 8;
     unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi,
         mimi_filepath.c_str(),
-        num_codebooks );
+        num_audio_codebooks );
     float frame_rate = mimi_frame_rate( codec );
     int frame_size = mimi_frame_size( codec );
 
@@ -551,8 +570,80 @@ int main(int argc, char *argv[]) {
         resampler.init();
     }
 
-    if ( personaplex && personaplex_voice_filepath.size() ) {
-        moshi_lm_personaplex_load_voice( moshi, gen, personaplex_voice_filepath.c_str() );
+    if ( personaplex ) {
+        if ( personaplex_voice_filepath.size() ) {
+            if ( personaplex_voice_embedding ) {
+                moshi_lm_personaplex_load_voice( moshi, gen,
+                    personaplex_voice_filepath.c_str() );
+                printf("using voice embedding: %s\n", personaplex_voice_filepath.c_str() );
+            } else if ( personaplex_voice_mimi ) {
+                auto f = fopen( personaplex_voice_filepath.c_str(), "rb" );
+                if ( ! f ) {
+                    fprintf( stderr, "error: failed to open \"%s\"\n", "temp.mimi" );
+                    exit(1);
+                }
+                int i32;
+                auto n = fread( &i32, 4, 1, f );
+                assert( n == 1 );
+                assert( i32 == 0x494d494d );
+                n = fread( &i32, 4, 1, f );
+                assert( n == 1 );
+                assert( i32 == num_audio_codebooks );
+                std::deque<std::vector<int16_t>> audio_prompt;
+                while ( true ) {
+                    audio_prompt.push_back({});
+                    auto & audio_codes = audio_prompt.back();
+                    audio_codes.resize( num_audio_codebooks );
+                    n = fread( audio_codes.data(), num_audio_codebooks * 2, 1, f );
+                    if ( n != 1 ) {
+                        audio_prompt.pop_back();
+                        break;
+                    }
+                }
+                fclose( f );
+                moshi_lm_personaplex_audio_prompt( gen, audio_prompt );
+                mimi_encode_reset( encoder );
+                printf("using audio prompt: %s\n", personaplex_voice_filepath.c_str() );
+            } else {
+                // mimi encode audio file
+                Decoder voice_decoder;
+                voice_decoder.init( personaplex_voice_filepath.c_str() );
+                AVChannelLayout mono;
+                av_channel_layout_default( &mono, 1 );
+                Resampler voice_resampler;
+                voice_resampler.set_input( voice_decoder.codec_ctx );
+                voice_resampler.set_output( 24000, AV_SAMPLE_FMT_FLT, mono, frame_size );
+                voice_resampler.init();
+                std::deque<std::vector<int16_t>> audio_prompt;
+                AVFrame * dec_frame;
+                while ( ( dec_frame = voice_decoder.frame() ) ) {
+                    auto frame = voice_resampler.frame( dec_frame );
+                    while ( frame ) {
+                        audio_prompt.push_back({});
+                        auto & audio_codes = audio_prompt.back();
+                        audio_codes.resize( num_audio_codebooks );
+                        mimi_encode_send( encoder, (float*)frame->data[0] );
+                        mimi_encode_receive( encoder, audio_codes.data() );
+                        frame = voice_resampler.frame();
+                    }
+                }
+                auto frame = voice_resampler.flush( true ); // inject silence
+                if ( frame ) {
+                    audio_prompt.push_back({});
+                    auto & audio_codes = audio_prompt.back();
+                    audio_codes.resize( num_audio_codebooks );
+                    mimi_encode_send( encoder, (float*)frame->data[0] );
+                    mimi_encode_receive( encoder, audio_codes.data() );
+                }
+                moshi_lm_personaplex_audio_prompt( gen, audio_prompt );
+                mimi_encode_reset( encoder );
+                printf("using audio prompt: %s\n", personaplex_voice_filepath.c_str() );
+            }
+        }
+        if ( personaplex_system_prompt.size() ) {
+            moshi_lm_personaplex_system_prompt( moshi, gen, tok,
+                personaplex_system_prompt.c_str() );
+        }
     }
 
     /////////////////////////
@@ -611,7 +702,7 @@ int main(int argc, char *argv[]) {
     // model
     moshi_lm_start( moshi, gen, depth_temperature, text_temperature );
 
-    std::vector<int16_t> tokens(num_codebooks);
+    std::vector<int16_t> tokens(num_audio_codebooks);
     int text_token;
 
     std::vector<float> blank(frame_size);
@@ -623,6 +714,8 @@ int main(int argc, char *argv[]) {
 
     AVFrame * dec_frame = input? dec_frame = input_decoder.frame() : NULL;
     AVFrame * res_frame = NULL;
+
+    printf("ready\n");
 
     uint64_t lm_start = ggml_time_us();
     while ( ! shutdown ) {

@@ -750,6 +750,7 @@ struct voice_t {
     std::deque<int> text_prefixes;
     std::deque<std::vector<int>> audio_prefixes;
     // personaplex
+    std::deque<std::vector<int16_t>> prompt_audio;
     ggml_tensor * prompt_embeddings;
     ggml_tensor * prompt_cache;
 };
@@ -804,23 +805,25 @@ bool moshi_lmgen_step(
     int dep_q_1 = dep_q + 1;
 
     auto needed_tokens = lm->num_codebooks - dep_q - 1;
+    bool provided = false;
     if ( needed_tokens > 0 ) {
         assert( (int)int_audio_tokens.size() >= needed_tokens );
         assert( (int)lm->delays.size() >= needed_tokens );
-        int start = dep_q_1;
-        for ( int i = 0; i < needed_tokens; i++ ) {
-            int write_position = (state->offset + lm->delays[start + i]) % CT;
-            state->cache[write_position][start + i] = int_audio_tokens[i];
+        if ( int_audio_tokens.size() == lm->num_codebooks ) {
+            for ( int i = 0; i < lm->num_codebooks; i++ ) {
+                int write_position = (state->offset + lm->delays[i]) % CT;
+                state->cache[write_position][i] = int_audio_tokens[i];
+            }
+            provided = true;
+        } else {
+            int start = dep_q_1;
+            for ( int i = 0; i < needed_tokens; i++ ) {
+                int write_position = (state->offset + lm->delays[start + i]) % CT;
+                state->cache[write_position][start + i] = int_audio_tokens[i];
+            }
         }
     }
-    /*
-    it would possibly make sense to "warm up" the cache to avoid the branching
-    logic below, and maybe have a more complete graph. may not be a performance
-    benefit to it though.
-    UPDATE: after investigating, there is additional logic later on that looks
-    for -1 and zeroes out the results if present. that means to do that you
-    need to modify data. see: scaled_embedding functions
-    */
+
     int positions = state->offset % CT;
     std::vector<int> input( lm->num_codebooks );
     for ( int i = 0; i < lm->num_codebooks; i++ ) {
@@ -929,11 +932,13 @@ bool moshi_lmgen_step(
 
     state->offset++;
 
-    int position = state->offset % CT;
-    state->cache[position][0] = text_token;
-    if ( lm->depformer ) {
-        for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
-            state->cache[position][q + 1] = int_audio_tokens[q];
+    if ( ! provided ) {
+        int position = state->offset % CT;
+        state->cache[position][0] = text_token;
+        if ( lm->depformer ) {
+            for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
+                state->cache[position][q + 1] = int_audio_tokens[q];
+            }
         }
     }
     
@@ -975,8 +980,11 @@ bool moshi_lmgen_step(
 
 // personaplex system prompts
 
-std::vector<int> SILENCE_TOKENS = { 948, 243, 1178, 546, 1736, 1030, 1978, 2008 };
-std::vector<int> SINE_TOKENS    = { 430, 1268, 381, 1611, 1095, 1495, 56, 472 };
+std::vector<int> PROMPT_TOKENS = {
+    /*text=*/ 3,
+    /*moshi=*/ 948,  243, 1178,  546, 1736, 1030, 1978, 2008,
+    /*input*/  430, 1268,  381, 1611, 1095, 1495,   56,  472
+};
 
 void moshi_lmgen_step_voice_prompt(
     ScratchContext & scratch,
@@ -1042,6 +1050,29 @@ void moshi_lmgen_step_voice_prompt(
                 state->cache[i][j] = cache[ i + j * cache_height ];
             }
         }
+    } else if ( voice->prompt_audio.size() ) {
+        const int dep_q = 8; // personaplex
+        int int_text_token;
+        std::vector<int> tokens;
+        int frames = 0;
+        while ( voice->prompt_audio.size() ) {
+            auto & audio_codes = voice->prompt_audio.front();
+            assert( audio_codes.size() == dep_q );
+
+            tokens = PROMPT_TOKENS;
+            for ( int j = 0; j < dep_q; j++ ) {
+                tokens[ j + 1 ] = audio_codes[ j ];
+            }
+
+            moshi_lmgen_step(
+                scratch, lmgen, state, lm_states,
+                /*depformer_replace_tokens=*/false,
+                int_text_token,
+                /*int_audio_tokens*/tokens
+            );
+
+            voice->prompt_audio.pop_front();
+        }
     }
 }
 
@@ -1049,18 +1080,41 @@ void moshi_lmgen_step_text_prompt(
     ScratchContext & ctx,
     moshi_lmgen_t * lmgen,
     moshi_lmgen_state_t * state,
-    moshi_lmmodel_states_t * lm_states
+    moshi_lmmodel_states_t * lm_states,
+    std::vector<int> & text_prompt
 ) {
-    // TODO
+    int int_text_token;
+    std::vector<int> tokens;
+    for ( auto token : text_prompt ) {
+        tokens = PROMPT_TOKENS;
+        tokens[0] = token;
+        moshi_lmgen_step(
+            ctx, lmgen, state, lm_states,
+            /*depformer_replace_tokens=*/false,
+            int_text_token,
+            /*int_audio_tokens*/tokens
+        );
+    }
 }
 
 void moshi_lmgen_step_audio_silence(
     ScratchContext & ctx,
     moshi_lmgen_t * lmgen,
     moshi_lmgen_state_t * state,
-    moshi_lmmodel_states_t * lm_states
+    moshi_lmmodel_states_t * lm_states,
+    int frame_count
 ) {
-    // TODO
+    int int_text_token;
+    std::vector<int> tokens;
+    for ( int i = 0; i < frame_count; i++ ) {
+        tokens = PROMPT_TOKENS;
+        moshi_lmgen_step(
+            ctx, lmgen, state, lm_states,
+            /*depformer_replace_tokens=*/false,
+            int_text_token,
+            /*int_audio_tokens*/tokens
+        );
+    }
 }
 
 void moshi_lmgen_step_system_prompts(
@@ -1068,10 +1122,13 @@ void moshi_lmgen_step_system_prompts(
     moshi_lmgen_t * lmgen,
     moshi_lmgen_state_t * state,
     moshi_lmmodel_states_t * lm_states,
-    voice_t * voice
+    voice_t * voice,
+    std::vector<int> & text_prompt
 ) {
+    // count is hard coded here, usually initialized with LMGen as half a second
+    const int audio_silence_frame_cnt = 6;
     moshi_lmgen_step_voice_prompt( ctx, lmgen, state, lm_states, voice );
-    moshi_lmgen_step_audio_silence( ctx, lmgen, state, lm_states );
-    moshi_lmgen_step_text_prompt( ctx, lmgen, state, lm_states );
-    moshi_lmgen_step_audio_silence( ctx, lmgen, state, lm_states );
+    moshi_lmgen_step_audio_silence( ctx, lmgen, state, lm_states, audio_silence_frame_cnt );
+    moshi_lmgen_step_text_prompt( ctx, lmgen, state, lm_states, text_prompt );
+    moshi_lmgen_step_audio_silence( ctx, lmgen, state, lm_states, audio_silence_frame_cnt );
 }

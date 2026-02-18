@@ -184,7 +184,14 @@ MOSHI_API void unref( moshi_lm_gen_t * gen );
 MOSHI_API int moshi_lm_set_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen, const char * filepath );
 MOSHI_API int moshi_lm_load_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen );
 MOSHI_API int moshi_lm_voice_prefix( moshi_lm_gen_t * gen, std::deque<int> & text_prefix, std::deque<std::vector<int>> & audio_prefix );
+MOSHI_API int moshi_lm_personaplex_audio_prompt( moshi_lm_gen_t * gen, std::deque<std::vector<int16_t>> & audio_prompt );
 MOSHI_API int moshi_lm_personaplex_load_voice( moshi_context_t * moshi, moshi_lm_gen_t * gen, const char * filename );
+MOSHI_API int moshi_lm_personaplex_system_prompt(
+    moshi_context_t * moshi,
+    moshi_lm_gen_t * gen,
+    tokenizer_t * tok,
+    const char * prompt
+);
 
 MOSHI_API void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature, bool logging = false );
 MOSHI_API void moshi_lm_send( moshi_lm_gen_t * gen, Entry * entry );

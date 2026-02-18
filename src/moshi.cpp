@@ -703,6 +703,8 @@ struct moshi_lm_gen_t {
     own_ptr<voice_t> voice;
     own_ptr<WeightLoader> voice_weights;
 
+    std::vector<int> text_prompt_tokens;
+
     moshi_lmgen_t lmgen;
     StateMachine * machine;
     State * machine_state;
@@ -758,13 +760,29 @@ int moshi_lm_load_voice_condition( moshi_context_t * moshi, moshi_lm_gen_t * gen
 }
 
 int moshi_lm_voice_prefix( moshi_lm_gen_t * gen, std::deque<int> & text_prefix, std::deque<std::vector<int>> & audio_prefix ) {
-    gen->voice = new voice_t;
-    gen->voice->ctx = NULL;
-    gen->voice->buffer = NULL;
-    gen->voice->sum = NULL;
-    gen->voice->cross = NULL;
-    gen->voice->text_prefixes.swap( text_prefix );
-    gen->voice->audio_prefixes.swap( audio_prefix );
+    auto voice = new voice_t;
+    voice->ctx = NULL;
+    voice->buffer = NULL;
+    voice->sum = NULL;
+    voice->cross = NULL;
+    voice->text_prefixes.swap( text_prefix );
+    voice->audio_prefixes.swap( audio_prefix );
+    voice->prompt_embeddings = NULL;
+    voice->prompt_cache = NULL;
+    gen->voice = voice;
+    return 0;
+}
+
+int moshi_lm_personaplex_audio_prompt( moshi_lm_gen_t * gen, std::deque<std::vector<int16_t>> & audio_prompt ) {
+    auto voice = new voice_t;
+    voice->ctx = NULL;
+    voice->buffer = NULL;
+    voice->sum = NULL;
+    voice->cross = NULL;
+    voice->prompt_audio.swap ( audio_prompt );
+    voice->prompt_embeddings = NULL;
+    voice->prompt_cache = NULL;
+    gen->voice = voice;
     return 0;
 }
 
@@ -805,14 +823,28 @@ int moshi_lm_personaplex_load_voice( moshi_context_t * moshi, moshi_lm_gen_t * g
 #endif
     }
 
-    gen->voice = new voice_t;
-    gen->voice->ctx = NULL;
-    gen->voice->buffer = NULL;
-    gen->voice->sum = NULL;
-    gen->voice->cross = NULL;
-    gen->voice->prompt_embeddings = voice_prompt_embeddings;
-    gen->voice->prompt_cache = voice_prompt_cache;
+    auto voice = new voice_t;
+    voice->ctx = NULL;
+    voice->buffer = NULL;
+    voice->sum = NULL;
+    voice->cross = NULL;
+    voice->prompt_embeddings = voice_prompt_embeddings;
+    voice->prompt_cache = voice_prompt_cache;
+    gen->voice = voice;
 
+    return 0;
+}
+
+int moshi_lm_personaplex_system_prompt(
+    moshi_context_t * moshi,
+    moshi_lm_gen_t * gen,
+    tokenizer_t * tok,
+    const char * prompt
+) {
+    std::string system_prompt = "<system> ";
+    system_prompt += prompt;
+    system_prompt += " <system>";
+    tok->sp.Encode(system_prompt, &gen->text_prompt_tokens);
     return 0;
 }
 
@@ -859,7 +891,8 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
             *gen->ctx,
             &gen->lmgen, gen->lmgen_state,
             gen->lm_states,
-            gen->voice
+            gen->voice,
+            gen->text_prompt_tokens
         );
     }
 }
