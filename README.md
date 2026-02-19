@@ -14,7 +14,9 @@ There is a separate project for Kyutai's Pocket TTS.
 
 - [Status](#status)
 - [Quick Start Linux](#quick-start-linux)
+- [PersonaPlex Linux](#personaplex-linux)
 - [Quick Start Windows](#quick-start-windows)
+- [PersonaPlex Windows](#personaplex-windows)
 - [Build Dependencies](#build-dependencies)
 - [Building](#building)
 - [Models](#models)
@@ -26,25 +28,13 @@ There is a separate project for Kyutai's Pocket TTS.
 
 The base library supports Kyutai's earlier Moshi models, speech to speech, text to speech, speech to text. And it supports NVIDIA's PersonaPlex since it is based on Moshi.
 
-### For Next Release
-
-PersonaPlex support progress (in no specific order):
-- [x] load model and quantized saving/loading
-- [x] load converted voice embeddings (pt files must be converted to safetenors or gguf)
-- [x] voice from audio file
-- [x] system text prompt
-- [ ] standalone personaplex demo tool
-
-General issues (in no specific order):
-- [x] refactor api to externalize ggml initialization like pocket-tts.cpp
-- [x] refactor demo tools.
-
 ### For Future Release
 
 - [ ] wrap sentencepiece into it's own dynamic library or externalize it.
 - [ ] investigate timing issue with sdl, integrate diagnosis in mimi-echo.
 - [ ] sync up moshi.cpp and pocket-tts.cpp code bases.
 - [ ] externalize utilities shared between pocket-tts.cpp and moshi.cpp
+- [ ] look into personaplex voice loading performance, possibly make an embedding tool.
 
 ### In Current Release
 
@@ -56,6 +46,7 @@ There are multiple tools that demonstrate different components:
 * moshi-tts - demonstrates text inputs to audio outputs
 * moshi-stt - demonstrates audio inputs to text outputs
 * moshi-sts - demonstrates audio inputs to audio (and text) outputs
+* personaplex - demonstrates how to use NVidia's advanced moshi model with voice cloning and a system prompt.
 
 There are aria2c download scripts to make it easier to download tested models.
 
@@ -98,20 +89,28 @@ Run text-to-speech:
 ./moshi-tts "Hello World!"
 ```
 
-### PersonaPlex
+### PersonaPlex Linux
 
-Download the models ( about 5.0GB ):
+Follow the instruction above but download the personaplex models ( about 5.0GB ):
 ```
 aria2c --disable-ipv6 -i Codes4Fun_personaplex-7b-v1-q4_k-GGUF.txt
 ```
 
-Run the model with 8GB of VRAM:
+Run it with random voice and behavior.
 ```
-./moshi-sts -m Codes4Fun/personaplex-7b-v1-q4_k-GGUF -c 2000
+./personaplex
 ```
-If you have more than 8GB of VRAM, remove the `-c 2000` option.
 
-See `.\moshi-sts -h` for voice options.
+To use one of NVidia's default voices:
+```
+./personaplex -v NATF0
+```
+See `.\personaplex -h` for more default voice options.
+
+To clone a voice from a wav file and set a system prompt.
+```
+./personaplex -v adam-west.wav -p "You are batman investigating a crime."
+```
 
 ## Quick Start Windows
 
@@ -141,20 +140,30 @@ Run text-to-speech:
 .\moshi-tts "Hello World!"
 ```
 
-### PersonaPlex
+### PersonaPlex Windows
 
-Download the models ( about 5.0GB ):
+Follow the instructions above but download the personaplex models ( about 5.0GB ):
 ```
 .\aria2c --disable-ipv6 -i Codes4Fun_personaplex-7b-v1-q4_k-GGUF.txt
 ```
 
-Run the model with 8GB of VRAM:
+Run it with random voice and behavior.
 ```
-.\moshi-sts -m Codes4Fun/personaplex-7b-v1-q4_k-GGUF -c 2000
+.\personaplex
 ```
-If you run into issues you can try to lower `-c 2000` to see if it works, and if you have more than 8GB of VRAM, you can remove the `-c 2000` option.
 
-See `.\moshi-sts -h` for voice options.
+Under Windows 11 it's been observed that performance can slow with large contexts, so you can use `-c 1000` to see if performance improves at the cost of conversation quality.
+
+To use one of NVidia's default voices:
+```
+.\personaplex -v NATF0
+```
+See `.\personaplex -h` for more default voice options.
+
+To clone a voice from a wav file and set a system prompt.
+```
+.\personaplex -v adam-west.wav -p "You are batman investigating a crime."
+```
 
 ## Build Dependencies
 
